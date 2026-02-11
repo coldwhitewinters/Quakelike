@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quakelike</title>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div id="game-container">
+        <!-- Title Screen -->
+        <div id="title-screen">
+            <pre id="title-art">
+  ██████  ██    ██  █████  ██   ██ ███████ ██      ██ ██   ██ ███████
+ ██    ██ ██    ██ ██   ██ ██  ██  ██      ██      ██ ██  ██  ██
+ ██    ██ ██    ██ ███████ █████   █████   ██      ██ █████   █████
+ ██ ▄▄ ██ ██    ██ ██   ██ ██  ██  ██      ██      ██ ██  ██  ██
+  ██████   ██████  ██   ██ ██   ██ ███████ ███████ ██ ██   ██ ███████
+     ▀▀
+            </pre>
+            <div id="title-menu">
+                <button id="btn-new-game" onclick="newGame()">New Game</button>
+                <button id="btn-load-game" onclick="loadGame()">Load Game</button>
+            </div>
+            <div id="controls-help">
+                <p>Movement: hjklyubn | Slipgates: &lt; &gt; | Inventory: i | Pick/Drop: x</p>
+                <p>Use/Activate: Enter | Target: t | Fire: f | Swap weapon: w</p>
+                <p>Message log: p | Save: S | Quit: Q</p>
+            </div>
+        </div>
+
+        <!-- Game Screen -->
+        <div id="game-screen" style="display:none">
+            <div id="game-layout">
+                <!-- Loot Panel (left side) -->
+                <div id="loot-panel" class="side-panel" style="display:none">
+                    <div class="panel-title">== LOOT ==</div>
+                    <div id="loot-list"></div>
+                </div>
+
+                <!-- Main Game Area -->
+                <div id="main-area">
+                    <div id="map-display"></div>
+                    <div id="status-bar"></div>
+                    <div id="message-area"></div>
+                </div>
+
+                <!-- Inventory Panel (right side) -->
+                <div id="inventory-panel" class="side-panel" style="display:none">
+                    <div class="panel-title">== INVENTORY ==</div>
+                    <div id="inventory-list"></div>
+                </div>
+            </div>
+
+            <!-- Message Log Overlay -->
+            <div id="message-log-overlay" style="display:none">
+                <div class="panel-title">== MESSAGE LOG ==</div>
+                <div id="full-message-log"></div>
+                <div class="panel-footer">Press p or Esc to close</div>
+            </div>
+
+            <!-- Game Over Overlay -->
+            <div id="game-over-overlay" style="display:none">
+                <pre id="game-over-art">
+  ██████   █████  ███    ███ ███████      ██████  ██    ██ ███████ ██████
+ ██       ██   ██ ████  ████ ██          ██    ██ ██    ██ ██      ██   ██
+ ██   ███ ███████ ██ ████ ██ █████       ██    ██ ██    ██ █████   ██████
+ ██    ██ ██   ██ ██  ██  ██ ██          ██    ██  ██  ██  ██      ██   ██
+  ██████  ██   ██ ██      ██ ███████      ██████    ████   ███████ ██   ██
+                </pre>
+                <div id="death-stats"></div>
+                <button onclick="newGame()">Try Again</button>
+            </div>
+
+            <!-- Victory Overlay -->
+            <div id="victory-overlay" style="display:none">
+                <pre id="victory-art">
+ ██    ██ ██  ██████ ████████  ██████  ██████  ██    ██ ██
+ ██    ██ ██ ██         ██    ██    ██ ██   ██  ██  ██  ██
+ ██    ██ ██ ██         ██    ██    ██ ██████    ████   ██
+  ██  ██  ██ ██         ██    ██    ██ ██   ██    ██
+   ████   ██  ██████    ██     ██████  ██   ██    ██    ██
+                </pre>
+                <div id="victory-stats"></div>
+                <button onclick="newGame()">Play Again</button>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.4/socket.io.min.js"></script>
+    <script src="/static/game.js"></script>
+</body>
+</html>

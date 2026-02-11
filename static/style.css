@@ -1,0 +1,317 @@
+/* Quakelike - Main Stylesheet */
+
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background-color: #0a0a0a;
+    color: #c0c0c0;
+    font-family: 'Courier New', 'Consolas', monospace;
+    overflow: hidden;
+    height: 100vh;
+    width: 100vw;
+}
+
+#game-container {
+    width: 100vw;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+/* Title Screen */
+#title-screen {
+    text-align: center;
+}
+
+#title-art {
+    color: #8B0000;
+    font-size: 12px;
+    line-height: 1.2;
+    margin-bottom: 30px;
+    text-shadow: 0 0 10px #8B0000;
+}
+
+#title-menu {
+    margin: 20px 0;
+}
+
+#title-menu button {
+    background-color: #1a1a1a;
+    color: #DAA520;
+    border: 1px solid #DAA520;
+    padding: 10px 30px;
+    margin: 0 10px;
+    font-family: 'Courier New', monospace;
+    font-size: 16px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+#title-menu button:hover {
+    background-color: #DAA520;
+    color: #0a0a0a;
+}
+
+#controls-help {
+    color: #666;
+    font-size: 12px;
+    margin-top: 20px;
+    line-height: 1.8;
+}
+
+/* Game Screen */
+#game-screen {
+    width: 100%;
+    height: 100%;
+    position: relative;
+}
+
+#game-layout {
+    display: flex;
+    height: 100%;
+    width: 100%;
+}
+
+/* Main Game Area */
+#main-area {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+}
+
+#map-display {
+    flex: 1;
+    overflow: hidden;
+    font-size: 14px;
+    line-height: 1.15;
+    padding: 2px;
+    white-space: pre;
+    background-color: #0a0a0a;
+}
+
+#map-display .map-row {
+    display: block;
+    height: 1.15em;
+}
+
+#map-display .tile {
+    display: inline-block;
+    width: 1ch;
+    text-align: center;
+}
+
+/* Status Bar */
+#status-bar {
+    height: 28px;
+    background-color: #1a1a1a;
+    border-top: 1px solid #333;
+    border-bottom: 1px solid #333;
+    padding: 4px 8px;
+    font-size: 13px;
+    display: flex;
+    align-items: center;
+    gap: 15px;
+    flex-shrink: 0;
+    overflow: hidden;
+}
+
+.stat {
+    white-space: nowrap;
+}
+
+.stat-label {
+    color: #888;
+}
+
+.stat-value {
+    font-weight: bold;
+}
+
+.health-high { color: #00FF00; }
+.health-mid { color: #FFD700; }
+.health-low { color: #FF0000; }
+
+.armor-value { color: #4169E1; }
+
+.ammo-shells { color: #DAA520; }
+.ammo-nails { color: #808080; }
+.ammo-rockets { color: #8B0000; }
+.ammo-cells { color: #00BFFF; }
+
+.weapon-name { color: #DAA520; }
+.powerup-active { color: #9400D3; }
+
+/* Message Area */
+#message-area {
+    height: 54px;
+    background-color: #111;
+    border-top: 1px solid #333;
+    padding: 2px 8px;
+    font-size: 12px;
+    color: #aaa;
+    overflow: hidden;
+    flex-shrink: 0;
+}
+
+#message-area .message {
+    line-height: 1.4;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+#message-area .message:last-child {
+    color: #ddd;
+}
+
+/* Side Panels */
+.side-panel {
+    width: 250px;
+    background-color: #111;
+    border-left: 1px solid #333;
+    border-right: 1px solid #333;
+    padding: 4px;
+    overflow-y: auto;
+    flex-shrink: 0;
+}
+
+.panel-title {
+    color: #DAA520;
+    text-align: center;
+    padding: 4px;
+    border-bottom: 1px solid #333;
+    font-size: 13px;
+}
+
+.panel-footer {
+    color: #666;
+    text-align: center;
+    padding: 4px;
+    font-size: 11px;
+}
+
+.item-entry {
+    padding: 3px 6px;
+    font-size: 12px;
+    cursor: default;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.item-entry.selected {
+    background-color: #333;
+    color: #fff;
+}
+
+.item-entry .item-char {
+    display: inline-block;
+    width: 2ch;
+}
+
+.item-entry .item-name {
+    margin-left: 4px;
+}
+
+.item-entry .item-qty {
+    color: #888;
+    float: right;
+}
+
+.item-entry .equipped-marker {
+    color: #00FF00;
+    margin-left: 4px;
+}
+
+.active-panel {
+    border-color: #DAA520 !important;
+}
+
+/* Message Log Overlay */
+#message-log-overlay {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 70%;
+    max-height: 70%;
+    background-color: #111;
+    border: 1px solid #DAA520;
+    padding: 10px;
+    overflow-y: auto;
+    z-index: 100;
+}
+
+#full-message-log {
+    font-size: 12px;
+    line-height: 1.5;
+    color: #aaa;
+    max-height: 400px;
+    overflow-y: auto;
+}
+
+#full-message-log .log-entry {
+    padding: 1px 0;
+}
+
+/* Game Over / Victory Overlays */
+#game-over-overlay, #victory-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background-color: rgba(0, 0, 0, 0.9);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 200;
+}
+
+#game-over-art {
+    color: #8B0000;
+    font-size: 10px;
+    line-height: 1.2;
+    text-shadow: 0 0 10px #8B0000;
+    margin-bottom: 20px;
+}
+
+#victory-art {
+    color: #FFD700;
+    font-size: 10px;
+    line-height: 1.2;
+    text-shadow: 0 0 10px #FFD700;
+    margin-bottom: 20px;
+}
+
+#death-stats, #victory-stats {
+    color: #aaa;
+    text-align: center;
+    margin: 20px 0;
+    font-size: 14px;
+    line-height: 1.8;
+}
+
+#game-over-overlay button, #victory-overlay button {
+    background-color: #1a1a1a;
+    color: #DAA520;
+    border: 1px solid #DAA520;
+    padding: 10px 30px;
+    font-family: 'Courier New', monospace;
+    font-size: 16px;
+    cursor: pointer;
+    margin-top: 20px;
+}
+
+#game-over-overlay button:hover, #victory-overlay button:hover {
+    background-color: #DAA520;
+    color: #0a0a0a;
+}
