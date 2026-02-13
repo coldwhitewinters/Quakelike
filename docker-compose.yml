@@ -1,0 +1,14 @@
+services:
+  app:
+    build: .
+    ports:
+      - "5000:5000"
+    volumes:
+      - .:/app
+      - /app/__pycache__
+      - saves_data:/app/saves
+    environment:
+      - FLASK_DEBUG=${FLASK_DEBUG:-1}
+
+volumes:
+  saves_data:
