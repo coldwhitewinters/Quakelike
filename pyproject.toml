@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "quakelike"
+version = "0.1.0"
+description = "A roguelike based on the original Quake"
+requires-python = ">=3.10"
+dependencies = [
+    "flask>=3.0",
+    "flask-socketio>=5.3",
+    "gevent>=24.2",
+    "gevent-websocket>=0.10",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+    "pytest-cov>=4.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+python_classes = ["Test*"]
+python_functions = ["test_*"]
