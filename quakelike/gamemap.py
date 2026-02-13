@@ -33,14 +33,17 @@ class Room:
 
     @property
     def center(self) -> Position:
+        """Get the center position of the room."""
         return Position(self.y + self.height // 2, self.x + self.width // 2)
 
     @property
     def y2(self) -> int:
+        """Get the bottom edge y-coordinate (y + height)."""
         return self.y + self.height
 
     @property
     def x2(self) -> int:
+        """Get the right edge x-coordinate (x + width)."""
         return self.x + self.width
 
     def intersects(self, other: Room, margin: int = 1) -> bool:
@@ -68,6 +71,7 @@ class GameMap:
     explored: set[tuple[int, int]] = field(default_factory=set)
 
     def __post_init__(self):
+        """Initialize the tile grid if not provided."""
         if not self.tiles:
             self.tiles = [[TILE_WALL] * self.width for _ in range(self.height)]
 
