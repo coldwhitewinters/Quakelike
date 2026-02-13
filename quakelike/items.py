@@ -64,10 +64,12 @@ class Item:
 
     @property
     def char(self) -> str:
+        """Get the display character for this item."""
         return self.item_def.char
 
     @property
     def color(self) -> str:
+        """Get the display color for this item."""
         return self.item_def.color
 
     def can_stack_with(self, other: Item) -> bool:

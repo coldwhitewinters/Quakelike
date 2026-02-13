@@ -66,6 +66,7 @@ class Game:
 
     @property
     def current_map(self) -> GameMap:
+        """Get the currently active game map."""
         return self.maps[self.current_map_idx]
 
     def new_game(self, seed: Optional[int] = None) -> None:
