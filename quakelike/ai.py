@@ -55,9 +55,11 @@ def update_enemy(enemy: Enemy, player: Player, game_map: GameMap,
             _wander(enemy, game_map, rng)
         return []
 
-    # Invisible player is harder to detect
+    # Invisible player is harder to detect but not impossible.
+    # Within 3 tiles enemies always detect the player (sound/proximity).
+    # Beyond 3 tiles there is a 70% chance the enemy loses track each turn,
+    # giving a 30% chance to still pursue, simulating imperfect invisibility.
     if player.invisibility_turns > 0 and dist > 3:
-        # Can't see invisible player unless very close
         if rng.random() < 0.7:
             _wander(enemy, game_map, rng)
             return []

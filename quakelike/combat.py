@@ -70,12 +70,7 @@ def player_fire_weapon(player: Player, target: Optional[Enemy],
         if target is None:
             target = _find_nearest_enemy(player, game_map, weapon_def.weapon_range)
             if target is None:
-                # Check ammo before firing into void
-                if weapon_def.ammo_type is not None:
-                    if not player.inventory.consume_ammo(
-                            weapon_def.ammo_type, weapon_def.ammo_per_shot):
-                        return False, f'Not enough ammo for {weapon_def.name}.', messages
-                return True, 'You fire into the void.', messages
+                return False, 'No target in range.', messages
 
         # Check LOS
         if not game_map.has_line_of_sight(player.pos, target.pos):
@@ -106,7 +101,7 @@ def player_fire_weapon(player: Player, target: Optional[Enemy],
             messages.append(f'Level up! You are now level {player.level}.')
 
     # Splash damage for explosive weapons
-    if weapon_def.name in ('Grenade Launcher', 'Rocket Launcher'):
+    if weapon_def.has_splash_damage:
         splash_msgs = _apply_splash_damage(
             target.pos, game_map, damage // 2, rng, exclude=target,
             player=player)

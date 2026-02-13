@@ -44,6 +44,8 @@ class ItemDef:
     # Powerup stats
     powerup_duration: int = 0  # turns
     powerup_effect: str = ''
+    # Combat properties
+    has_splash_damage: bool = False
     # Display
     description: str = ''
 
@@ -164,6 +166,7 @@ GRENADE_LAUNCHER = ItemDef(
     ammo_type=AmmoType.ROCKETS,
     ammo_per_shot=1,
     weapon_range=18,
+    has_splash_damage=True,
     description='Lobs explosive grenades.',
 )
 
@@ -177,6 +180,7 @@ ROCKET_LAUNCHER = ItemDef(
     ammo_type=AmmoType.ROCKETS,
     ammo_per_shot=1,
     weapon_range=25,
+    has_splash_damage=True,
     description='Fires devastating rockets.',
 )
 

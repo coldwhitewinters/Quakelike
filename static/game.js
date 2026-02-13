@@ -28,6 +28,12 @@ function initSocket() {
 
     socket.on('disconnect', () => {
         console.log('Disconnected from server');
+        showConnectionStatus('Connection lost. Reconnecting...');
+    });
+
+    socket.on('reconnect', () => {
+        console.log('Reconnected to server');
+        hideConnectionStatus();
     });
 }
 
@@ -292,6 +298,23 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+function showConnectionStatus(message) {
+    let el = document.getElementById('connection-status');
+    if (!el) {
+        el = document.createElement('div');
+        el.id = 'connection-status';
+        el.style.cssText = 'position:fixed;top:0;left:0;right:0;background:#c00;color:#fff;text-align:center;padding:4px;z-index:9999;font-family:monospace;';
+        document.body.prepend(el);
+    }
+    el.textContent = message;
+    el.style.display = 'block';
+}
+
+function hideConnectionStatus() {
+    const el = document.getElementById('connection-status');
+    if (el) el.style.display = 'none';
 }
 
 // ============================================================

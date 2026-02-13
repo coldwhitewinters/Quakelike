@@ -98,9 +98,9 @@ class Game:
     def handle_input(self, key: str) -> dict:
         """Handle a key input. Returns game state for rendering."""
         if self.state == GameState.GAME_OVER:
-            return self._get_render_state()
+            return self.get_render_state()
         if self.state == GameState.VICTORY:
-            return self._get_render_state()
+            return self.get_render_state()
 
         if self.state == GameState.INVENTORY or self.state == GameState.LOOT:
             return self._handle_inventory_input(key)
@@ -139,7 +139,7 @@ class Game:
             self.quit = True
             self.message_log.add('You quit the game.')
 
-        return self._get_render_state()
+        return self.get_render_state()
 
     def _move_player(self, key: str) -> None:
         """Move player in a direction."""
@@ -309,7 +309,7 @@ class Game:
         elif key == KEY_USE or key == 'Enter':
             self._use_selected_item()
 
-        return self._get_render_state()
+        return self.get_render_state()
 
     def _pick_drop_item(self, ground_items: list[Item]) -> None:
         """Move item between inventory and ground."""
@@ -372,7 +372,7 @@ class Game:
         elif key == KEY_NAV_DOWN:
             self.message_log_scroll += 1
 
-        return self._get_render_state()
+        return self.get_render_state()
 
     def _start_targeting(self) -> None:
         """Start targeting mode."""
@@ -404,7 +404,7 @@ class Game:
             self._fire_at_target()
             self.state = GameState.PLAYING
 
-        return self._get_render_state()
+        return self.get_render_state()
 
     def _fire_weapon(self) -> None:
         """Fire equipped weapon at target or straight ahead."""
@@ -501,11 +501,35 @@ class Game:
         try:
             with open('saves/savegame.json', 'r') as f:
                 data = json.load(f)
+            self._validate_save_data(data)
             self._deserialize(data)
             self.message_log.add('Game loaded.')
             return True
-        except (FileNotFoundError, json.JSONDecodeError, KeyError):
+        except (FileNotFoundError, json.JSONDecodeError, KeyError,
+                TypeError, ValueError, IndexError):
             return False
+
+    @staticmethod
+    def _validate_save_data(data: dict) -> None:
+        """Validate that required fields exist in save data.
+
+        Raises KeyError if required fields are missing.
+        Raises TypeError if data is not a dict.
+        """
+        if not isinstance(data, dict):
+            raise TypeError('Save data must be a dict')
+        required = ('seed', 'turn', 'current_map_idx', 'player', 'maps')
+        for key in required:
+            if key not in data:
+                raise KeyError(f'Missing required save field: {key}')
+        player = data['player']
+        if not isinstance(player, dict):
+            raise TypeError('Player data must be a dict')
+        player_required = ('pos_y', 'pos_x', 'health', 'max_health',
+                           'inventory')
+        for key in player_required:
+            if key not in player:
+                raise KeyError(f'Missing required player field: {key}')
 
     def _serialize(self) -> dict:
         """Serialize game state to dict."""
@@ -515,6 +539,7 @@ class Game:
 
         return {
             'seed': self.seed,
+            'rng_state': self.rng.getstate(),
             'turn': self.turn,
             'current_map_idx': self.current_map_idx,
             'player': self._serialize_player(),
@@ -578,6 +603,11 @@ class Game:
         """Restore game state from dict."""
         self.seed = data['seed']
         self.rng = random.Random(self.seed)
+        if 'rng_state' in data:
+            self.rng.setstate(tuple(
+                tuple(x) if isinstance(x, list) else x
+                for x in data['rng_state']
+            ))
         self.turn = data['turn']
         self.current_map_idx = data['current_map_idx']
 
@@ -661,7 +691,7 @@ class Game:
         self.message_log.messages = data.get('messages', [])
         self.state = GameState.PLAYING
 
-    def _get_render_state(self) -> dict:
+    def get_render_state(self) -> dict:
         """Get the current game state for rendering."""
         gmap = self.current_map
         p = self.player

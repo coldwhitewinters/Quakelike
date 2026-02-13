@@ -1,25 +1,42 @@
 """Flask web server for Quakelike."""
 
 import os
+import time
 
-from flask import Flask, render_template, send_from_directory
+from flask import Flask, render_template, send_from_directory, request
 from flask_socketio import SocketIO, emit
 
 from quakelike.game import Game
 
 app = Flask(__name__, static_folder='static', template_folder='static')
-cors_origins = os.getenv('CORS_ORIGINS', '*')
+cors_origins = os.getenv('CORS_ORIGINS', 'http://localhost:5000')
 socketio = SocketIO(app, cors_allowed_origins=cors_origins)
 
-# Global game instance per session (single player for now)
+# Session timeout in seconds (1 hour)
+SESSION_TIMEOUT = 3600
+
+# Game sessions with last-activity timestamps
 games: dict[str, Game] = {}
+last_activity: dict[str, float] = {}
 
 
 def get_game(sid: str) -> Game:
     """Get or create a game for a session."""
     if sid not in games:
+        _cleanup_stale_sessions()
         games[sid] = Game()
+    last_activity[sid] = time.time()
     return games[sid]
+
+
+def _cleanup_stale_sessions() -> None:
+    """Remove sessions that have been inactive longer than SESSION_TIMEOUT."""
+    now = time.time()
+    stale = [sid for sid, ts in last_activity.items()
+             if now - ts > SESSION_TIMEOUT]
+    for sid in stale:
+        games.pop(sid, None)
+        last_activity.pop(sid, None)
 
 
 @app.route('/')
@@ -39,30 +56,27 @@ def on_connect():
 
 @socketio.on('disconnect')
 def on_disconnect():
-    from flask import request
     sid = request.sid
-    if sid in games:
-        del games[sid]
+    games.pop(sid, None)
+    last_activity.pop(sid, None)
 
 
 @socketio.on('new_game')
 def on_new_game(data=None):
-    from flask import request
     sid = request.sid
     game = get_game(sid)
     seed = data.get('seed') if data else None
     game.new_game(seed=seed)
-    state = game._get_render_state()
+    state = game.get_render_state()
     emit('game_state', state)
 
 
 @socketio.on('load_game')
 def on_load_game():
-    from flask import request
     sid = request.sid
     game = get_game(sid)
     if game.load_game():
-        state = game._get_render_state()
+        state = game.get_render_state()
         emit('game_state', state)
     else:
         emit('error', {'message': 'No save game found.'})
@@ -70,17 +84,24 @@ def on_load_game():
 
 @socketio.on('input')
 def on_input(data):
-    from flask import request
+    if not isinstance(data, dict):
+        emit('error', {'message': 'Invalid input format.'})
+        return
+    key = data.get('key', '')
+    if not isinstance(key, str) or len(key) > 20:
+        emit('error', {'message': 'Invalid key.'})
+        return
+
     sid = request.sid
     game = get_game(sid)
     if game.player is None:
         emit('error', {'message': 'No game in progress. Start a new game.'})
         return
 
-    key = data.get('key', '')
     state = game.handle_input(key)
     emit('game_state', state)
 
 
 if __name__ == '__main__':
-    socketio.run(app, host='0.0.0.0', port=5000, debug=True)
+    debug = os.getenv('FLASK_DEBUG', 'false').lower() == 'true'
+    socketio.run(app, host='0.0.0.0', port=5000, debug=debug)
