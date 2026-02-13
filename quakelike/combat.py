@@ -5,6 +5,9 @@ import random
 from typing import Optional, TYPE_CHECKING
 
 from quakelike.constants import MELEE_DAMAGE_MIN, MELEE_DAMAGE_MAX
+
+SPLASH_RADIUS = 2
+
 from quakelike.entity import Entity, Position
 from quakelike.enemies import Enemy, AttackType
 from quakelike.items import ItemType
@@ -18,7 +21,6 @@ def calculate_weapon_damage(player: Player, rng: random.Random) -> int:
     """Calculate damage from the player's equipped weapon."""
     weapon = player.equipped_weapon
     if weapon is None:
-        # Bare hands - use melee damage
         return rng.randint(MELEE_DAMAGE_MIN, MELEE_DAMAGE_MAX)
 
     base = rng.randint(weapon.item_def.damage_min, weapon.item_def.damage_max)
@@ -56,13 +58,9 @@ def player_fire_weapon(player: Player, target: Optional[Enemy],
 
     weapon_def = player.equipped_weapon.item_def
 
-    # Check ammo
-    if weapon_def.ammo_type is not None:
-        if not player.inventory.consume_ammo(weapon_def.ammo_type,
-                                              weapon_def.ammo_per_shot):
-            return False, f'Not enough ammo for {weapon_def.name}.', messages
+    # --- Validate target and conditions BEFORE consuming ammo ---
 
-    # Check range
+    # Check range / target validity
     if weapon_def.weapon_range <= 1:
         # Melee weapon - need adjacent target
         if target is None or target.pos.chebyshev_distance(player.pos) > 1:
@@ -70,9 +68,13 @@ def player_fire_weapon(player: Player, target: Optional[Enemy],
     else:
         # Ranged weapon
         if target is None:
-            # Fire straight ahead - try to find something in the line
-            target, hit_msg = _fire_in_direction(player, game_map, weapon_def.weapon_range)
+            target = _find_nearest_enemy(player, game_map, weapon_def.weapon_range)
             if target is None:
+                # Check ammo before firing into void
+                if weapon_def.ammo_type is not None:
+                    if not player.inventory.consume_ammo(
+                            weapon_def.ammo_type, weapon_def.ammo_per_shot):
+                        return False, f'Not enough ammo for {weapon_def.name}.', messages
                 return True, 'You fire into the void.', messages
 
         # Check LOS
@@ -83,6 +85,12 @@ def player_fire_weapon(player: Player, target: Optional[Enemy],
         dist = player.pos.chebyshev_distance(target.pos)
         if dist > weapon_def.weapon_range:
             return False, f'{target.name} is out of range.', messages
+
+    # --- All checks passed, NOW consume ammo ---
+    if weapon_def.ammo_type is not None:
+        if not player.inventory.consume_ammo(weapon_def.ammo_type,
+                                              weapon_def.ammo_per_shot):
+            return False, f'Not enough ammo for {weapon_def.name}.', messages
 
     # Calculate damage
     damage = calculate_weapon_damage(player, rng)
@@ -97,24 +105,27 @@ def player_fire_weapon(player: Player, target: Optional[Enemy],
         if leveled:
             messages.append(f'Level up! You are now level {player.level}.')
 
-    # Check friendly fire for explosion weapons (grenade/rocket)
+    # Splash damage for explosive weapons
     if weapon_def.name in ('Grenade Launcher', 'Rocket Launcher'):
-        splash_msgs = _apply_splash_damage(target.pos, game_map, damage // 2, rng,
-                                            exclude=target)
+        splash_msgs = _apply_splash_damage(
+            target.pos, game_map, damage // 2, rng, exclude=target,
+            player=player)
         messages.extend(splash_msgs)
 
     return True, main_msg, messages
 
 
-def _fire_in_direction(player: Player, game_map: GameMap,
-                       max_range: int) -> tuple[Optional[Enemy], str]:
-    """Fire straight ahead (based on last movement direction).
+def _find_nearest_enemy(player: Player, game_map: GameMap,
+                        max_range: int) -> Optional[Enemy]:
+    """Find the nearest visible enemy within range.
 
-    For simplicity, fire in all cardinal directions and hit first enemy.
+    Scans all directions and returns the closest enemy with LOS.
     """
-    # Try each direction from player
     directions = [(-1, 0), (1, 0), (0, -1), (0, 1),
                   (-1, -1), (-1, 1), (1, -1), (1, 1)]
+
+    best_enemy = None
+    best_dist = max_range + 1
 
     for dy, dx in directions:
         for dist in range(1, max_range + 1):
@@ -123,28 +134,46 @@ def _fire_in_direction(player: Player, game_map: GameMap,
             if game_map.is_blocking(ny, nx):
                 break
             enemy = game_map.get_enemy_at(ny, nx)
-            if enemy is not None:
-                return enemy, f'Auto-targeted {enemy.name}.'
+            if enemy is not None and dist < best_dist:
+                best_enemy = enemy
+                best_dist = dist
+                break  # Found closest in this direction
 
-    return None, ''
+    return best_enemy
 
 
 def _apply_splash_damage(center: Position, game_map: GameMap,
                          damage: int, rng: random.Random,
-                         exclude: Optional[Enemy] = None) -> list[str]:
-    """Apply splash damage to enemies near the center."""
+                         exclude: Optional[Enemy] = None,
+                         player: Optional[Player] = None) -> list[str]:
+    """Apply splash damage to enemies (and optionally player) near center."""
     messages = []
     for enemy in game_map.get_living_enemies():
         if enemy is exclude:
             continue
         dist = center.chebyshev_distance(enemy.pos)
-        if dist <= 2:
+        if dist <= SPLASH_RADIUS:
             splash = max(1, damage // (dist + 1))
             actual = enemy.take_damage(splash)
             if enemy.is_alive:
                 messages.append(f'{enemy.name} caught in explosion for {actual} damage!')
             else:
                 messages.append(f'{enemy.name} killed by explosion!')
+                if player is not None:
+                    xp, leveled = player.gain_xp(enemy.xp_value)
+                    messages.append(f'You gained {enemy.xp_value} XP.')
+                    if leveled:
+                        messages.append(f'Level up! You are now level {player.level}.')
+
+    # Self-damage to player from their own explosions
+    if player is not None:
+        pdist = center.chebyshev_distance(player.pos)
+        if pdist <= SPLASH_RADIUS:
+            splash = max(1, damage // (pdist + 1))
+            actual = player.take_damage(splash)
+            if actual > 0:
+                messages.append(f'You caught yourself in the explosion for {actual} damage!')
+
     return messages
 
 

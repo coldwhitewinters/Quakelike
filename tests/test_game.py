@@ -7,14 +7,14 @@ import pytest
 from quakelike.game import Game, GameState
 from quakelike.entity import Position
 from quakelike.items import (
-    create_item, ItemDef, ItemType,
+    create_item, ItemDef, ItemType, RUNE,
     AXE, SHOTGUN, SHELLS_SMALL, GREEN_ARMOR, SMALL_HEALTH,
-    QUAD_DAMAGE,
+    QUAD_DAMAGE, BIOSUIT,
 )
 from quakelike.enemies import Enemy, GRUNT, ROTTWEILER
 from quakelike.constants import (
-    TILE_FLOOR, TILE_SLIPGATE_DOWN, TILE_SLIPGATE_UP, TILE_ENTRANCE,
-    NUM_MAPS,
+    TILE_FLOOR, TILE_LAVA, TILE_SLIPGATE_DOWN, TILE_SLIPGATE_UP,
+    TILE_ENTRANCE, NUM_MAPS,
 )
 
 
@@ -430,3 +430,130 @@ class TestRenderState:
         state = game._get_render_state()
         assert len(state['map']) == state['map_height']
         assert len(state['map'][0]) == state['map_width']
+
+
+class TestEnvironmentalDamage:
+    def test_lava_deals_damage(self):
+        game = Game()
+        game.new_game(seed=42)
+        # Setup a lava tile
+        game.current_map.set_tile(10, 10, TILE_FLOOR)
+        game.current_map.set_tile(10, 11, TILE_LAVA)
+        game.player.pos = Position(10, 10)
+        # Clear enemies from the destination
+        game.current_map.enemies = [
+            e for e in game.current_map.enemies
+            if e.pos != Position(10, 11)
+        ]
+
+        initial_hp = game.player.health
+        game.handle_input('l')  # Move right into lava
+        assert game.player.health < initial_hp
+
+    def test_biosuit_protects_from_lava(self):
+        game = Game()
+        game.new_game(seed=42)
+        game.current_map.set_tile(10, 10, TILE_FLOOR)
+        game.current_map.set_tile(10, 11, TILE_LAVA)
+        game.player.pos = Position(10, 10)
+        game.player.biosuit_turns = 10
+        game.current_map.enemies = [
+            e for e in game.current_map.enemies
+            if e.pos != Position(10, 11)
+        ]
+
+        initial_hp = game.player.health
+        game.handle_input('l')
+        assert game.player.health == initial_hp
+
+
+class TestMeleeXP:
+    def test_melee_kill_awards_xp(self):
+        game = Game()
+        game.new_game(seed=42)
+        game.player.pos = Position(10, 10)
+        game.current_map.set_tile(10, 10, TILE_FLOOR)
+        game.current_map.set_tile(10, 11, TILE_FLOOR)
+        enemy = Enemy.from_def(ROTTWEILER, Position(10, 11))
+        enemy.health = 1  # One hit kill
+        game.current_map.enemies.append(enemy)
+
+        initial_xp = game.player.xp
+        game.handle_input('l')  # Move right into enemy
+        assert not enemy.is_alive
+        assert game.player.xp > initial_xp
+        msgs = game.message_log.get_all()
+        assert any('XP' in m for m in msgs)
+
+
+class TestQuitVsDeath:
+    def test_quit_sets_quit_flag(self):
+        game = Game()
+        game.new_game(seed=42)
+        game.handle_input('Q')
+        assert game.state == GameState.GAME_OVER
+        assert game.quit is True
+
+    def test_death_does_not_set_quit_flag(self):
+        game = Game()
+        game.new_game(seed=42)
+        game.player.health = 1
+        game.player.is_alive = True
+        game.player.take_damage(999)
+        game._end_turn()
+        assert game.state == GameState.GAME_OVER
+        assert game.quit is False
+
+    def test_render_state_includes_quit_flag(self):
+        game = Game()
+        game.new_game(seed=42)
+        state = game._get_render_state()
+        assert 'quit' in state
+        assert state['quit'] is False
+        game.handle_input('Q')
+        state = game._get_render_state()
+        assert state['quit'] is True
+
+
+class TestPermadeath:
+    def test_save_deleted_on_death(self):
+        game = Game()
+        game.new_game(seed=42)
+        game.handle_input('S')  # Save
+        assert os.path.exists('saves/savegame.json')
+
+        # Kill the player
+        game.player.health = 1
+        game.player.take_damage(999)
+        game._end_turn()
+        assert game.state == GameState.GAME_OVER
+        assert not os.path.exists('saves/savegame.json')
+
+
+class TestSaveLoadRune:
+    def test_save_load_preserves_rune(self):
+        game = Game()
+        game.new_game(seed=42)
+        rune = create_item(RUNE)
+        game.player.inventory.add_item(rune)
+        assert game.player.has_rune()
+
+        game.handle_input('S')
+
+        game2 = Game()
+        game2.load_game()
+        assert game2.player.has_rune()
+
+    def test_save_load_rune_on_ground(self):
+        game = Game()
+        game.new_game(seed=42)
+        rune = create_item(RUNE)
+        py, px = game.player.pos.y, game.player.pos.x
+        game.current_map.add_item_at(py, px, rune)
+
+        game.handle_input('S')
+
+        game2 = Game()
+        game2.load_game()
+        items = game2.current_map.get_items_at(py, px)
+        assert any(i.name == 'Rune' for i in items)

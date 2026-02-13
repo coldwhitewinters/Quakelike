@@ -239,6 +239,117 @@ class TestSplashDamage:
         assert nearby.health < GRUNT.health
 
 
+class TestSplashSelfDamage:
+    def test_rocket_splash_self_damage(self):
+        """Player should take splash damage from their own rockets."""
+        rng = random.Random(42)
+        player = Player.create(Position(10, 10))
+        rl = create_item(ROCKET_LAUNCHER)
+        rockets = create_item(ROCKETS_SMALL)
+        player.inventory.add_item(rl)
+        player.inventory.add_item(rockets)
+        player.equip_weapon(rl)
+
+        gmap = make_test_map()
+        # Place enemy adjacent - splash should hit player
+        target = Enemy.from_def(SHAMBLER, Position(10, 11))
+        gmap.enemies.append(target)
+
+        initial_hp = player.health
+        success, msg, extra = player_fire_weapon(player, target, gmap, rng)
+        assert success
+        # Player should have taken splash damage (distance 1 from impact)
+        assert player.health < initial_hp
+        assert any('yourself' in m.lower() and 'explosion' in m.lower() for m in extra)
+
+    def test_no_splash_self_damage_at_distance(self):
+        """Player far from explosion should not take self damage."""
+        rng = random.Random(42)
+        player = Player.create(Position(10, 10))
+        rl = create_item(ROCKET_LAUNCHER)
+        rockets = create_item(ROCKETS_SMALL)
+        player.inventory.add_item(rl)
+        player.inventory.add_item(rockets)
+        player.equip_weapon(rl)
+
+        gmap = make_test_map()
+        target = Enemy.from_def(SHAMBLER, Position(10, 18))
+        gmap.enemies.append(target)
+
+        initial_hp = player.health
+        success, msg, extra = player_fire_weapon(player, target, gmap, rng)
+        assert success
+        assert player.health == initial_hp  # No self-damage at this distance
+
+
+class TestSplashXP:
+    def test_splash_kill_awards_xp(self):
+        """Kills from splash damage should award XP."""
+        rng = random.Random(42)
+        player = Player.create(Position(10, 10))
+        rl = create_item(ROCKET_LAUNCHER)
+        rockets = create_item(ROCKETS_SMALL)
+        player.inventory.add_item(rl)
+        player.inventory.add_item(rockets)
+        player.equip_weapon(rl)
+
+        gmap = make_test_map()
+        target = Enemy.from_def(SHAMBLER, Position(10, 15))
+        # Place a weak enemy nearby that will die from splash
+        weak = Enemy.from_def(GRUNT, Position(10, 16))
+        weak.health = 1  # Will die from splash
+        gmap.enemies.extend([target, weak])
+
+        initial_xp = player.xp
+        success, msg, extra = player_fire_weapon(player, target, gmap, rng)
+        assert success
+        # Should have gained XP from splash kill
+        assert not weak.is_alive
+        assert player.xp > initial_xp
+        assert any('XP' in m for m in extra)
+
+
+class TestAmmoNotConsumedOnFailure:
+    def test_ammo_not_consumed_on_no_los(self):
+        """Ammo should not be consumed when there is no line of sight."""
+        rng = random.Random(42)
+        player = Player.create(Position(10, 10))
+        shotgun = create_item(SHOTGUN)
+        shells = create_item(SHELLS_SMALL)
+        player.inventory.add_item(shotgun)
+        player.inventory.add_item(shells)
+        player.equip_weapon(shotgun)
+
+        gmap = make_test_map()
+        gmap.set_tile(10, 12, '#')  # Wall blocks LOS
+        enemy = Enemy.from_def(GRUNT, Position(10, 15))
+        gmap.enemies.append(enemy)
+
+        initial_ammo = player.inventory.get_ammo_count(SHOTGUN.ammo_type)
+        success, msg, extra = player_fire_weapon(player, enemy, gmap, rng)
+        assert not success
+        assert player.inventory.get_ammo_count(SHOTGUN.ammo_type) == initial_ammo
+
+    def test_ammo_not_consumed_out_of_range(self):
+        """Ammo should not be consumed when target is out of range."""
+        rng = random.Random(42)
+        player = Player.create(Position(10, 10))
+        shotgun = create_item(SHOTGUN)
+        shells = create_item(SHELLS_SMALL)
+        player.inventory.add_item(shotgun)
+        player.inventory.add_item(shells)
+        player.equip_weapon(shotgun)
+
+        gmap = make_test_map()
+        enemy = Enemy.from_def(GRUNT, Position(10, 35))
+        gmap.enemies.append(enemy)
+
+        initial_ammo = player.inventory.get_ammo_count(SHOTGUN.ammo_type)
+        success, msg, extra = player_fire_weapon(player, enemy, gmap, rng)
+        assert not success
+        assert player.inventory.get_ammo_count(SHOTGUN.ammo_type) == initial_ammo
+
+
 class TestDamageCalculation:
     def test_weapon_damage_in_range(self):
         rng = random.Random(42)

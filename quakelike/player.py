@@ -102,11 +102,16 @@ class Player(Entity):
         return self.inventory.get_ammo_count(weapon_def.ammo_type) >= weapon_def.ammo_per_shot
 
     def apply_armor(self, item: Item) -> bool:
-        """Apply armor from an item."""
+        """Apply armor from an item. Only replaces if new armor is better."""
         if item.item_type != ItemType.ARMOR:
             return False
-        self.armor = item.item_def.armor_points
-        self.armor_absorption = item.item_def.armor_absorption
+        new_points = item.item_def.armor_points
+        new_absorption = item.item_def.armor_absorption
+        # Only replace if new armor provides better effective protection
+        if new_points * new_absorption <= self.armor * self.armor_absorption:
+            return False
+        self.armor = new_points
+        self.armor_absorption = new_absorption
         return True
 
     def apply_health(self, item: Item) -> int:
@@ -145,30 +150,32 @@ class Player(Entity):
 
         if item.item_type == ItemType.ARMOR:
             if self.apply_armor(item):
-                idx = self.inventory.find_by_name(item.name)
-                if idx is not None:
-                    self.inventory.remove_item(idx)
+                self._remove_item_by_identity(item)
                 return True, f'Applied {item.name}. Armor: {self.armor}'
-            return False, f'Cannot apply {item.name}.'
+            return False, f'Current armor is better than {item.name}.'
 
         if item.item_type == ItemType.HEALTH:
             healed = self.apply_health(item)
             if healed > 0:
-                idx = self.inventory.find_by_name(item.name)
-                if idx is not None:
-                    self.inventory.remove_item(idx)
+                self._remove_item_by_identity(item)
                 return True, f'Used {item.name}. Healed {healed} HP.'
             return False, 'Health is already full.'
 
         if item.item_type == ItemType.POWERUP:
             if self.apply_powerup(item):
-                idx = self.inventory.find_by_name(item.name)
-                if idx is not None:
-                    self.inventory.remove_item(idx)
+                self._remove_item_by_identity(item)
                 return True, f'Activated {item.name}!'
             return False, f'Cannot use {item.name}.'
 
         return False, 'Cannot use this item.'
+
+    def _remove_item_by_identity(self, item: Item) -> bool:
+        """Remove a specific item instance from inventory by identity (not name)."""
+        idx = self.inventory.find_by_identity(item)
+        if idx is not None:
+            self.inventory.remove_item(idx)
+            return True
+        return False
 
     def tick_powerups(self) -> list[str]:
         """Decrement powerup timers. Returns messages for expired powerups."""

@@ -74,10 +74,11 @@ class TestGameMap:
         gmap = GameMap()
         assert not gmap.is_walkable(0, 0)
 
-    def test_lava_not_walkable(self):
+    def test_lava_is_walkable(self):
+        """Lava is walkable but deals damage (tested in game tests)."""
         gmap = GameMap()
         gmap.set_tile(5, 5, TILE_LAVA)
-        assert not gmap.is_walkable(5, 5)
+        assert gmap.is_walkable(5, 5)
 
 
 class TestItemsOnGround:

@@ -3,7 +3,7 @@
 from __future__ import annotations
 from dataclasses import dataclass, field
 from enum import Enum, auto
-from typing import Optional
+from typing import Optional  # used in create_item signature
 
 
 class ItemType(Enum):
@@ -90,7 +90,7 @@ class Item:
 AXE = ItemDef(
     name='Axe',
     item_type=ItemType.WEAPON,
-    char=')',
+    char='/',
     color='#C0C0C0',
     damage_min=10,
     damage_max=20,
@@ -103,7 +103,7 @@ AXE = ItemDef(
 SHOTGUN = ItemDef(
     name='Shotgun',
     item_type=ItemType.WEAPON,
-    char=')',
+    char=')',  # shotgun
     color='#DAA520',
     damage_min=4,
     damage_max=24,  # 6 pellets, 4 damage each
@@ -116,7 +116,7 @@ SHOTGUN = ItemDef(
 SUPER_SHOTGUN = ItemDef(
     name='Double-Barrelled Shotgun',
     item_type=ItemType.WEAPON,
-    char=')',
+    char='}',  # double-barrelled
     color='#B8860B',
     damage_min=8,
     damage_max=48,  # 14 pellets, roughly
@@ -129,7 +129,7 @@ SUPER_SHOTGUN = ItemDef(
 NAILGUN = ItemDef(
     name='Nailgun',
     item_type=ItemType.WEAPON,
-    char=')',
+    char='{',  # nailgun
     color='#808080',
     damage_min=9,
     damage_max=9,  # 9 damage per nail
@@ -142,7 +142,7 @@ NAILGUN = ItemDef(
 SUPER_NAILGUN = ItemDef(
     name='Super Nailgun',
     item_type=ItemType.WEAPON,
-    char=')',
+    char='!',  # super nailgun
     color='#A9A9A9',
     damage_min=18,
     damage_max=18,  # 18 damage per shot (2 nails)
@@ -155,7 +155,7 @@ SUPER_NAILGUN = ItemDef(
 GRENADE_LAUNCHER = ItemDef(
     name='Grenade Launcher',
     item_type=ItemType.WEAPON,
-    char=')',
+    char='(',  # grenade launcher
     color='#556B2F',
     damage_min=50,
     damage_max=120,
@@ -168,7 +168,7 @@ GRENADE_LAUNCHER = ItemDef(
 ROCKET_LAUNCHER = ItemDef(
     name='Rocket Launcher',
     item_type=ItemType.WEAPON,
-    char=')',
+    char='=',  # rocket launcher
     color='#8B0000',
     damage_min=50,
     damage_max=120,
@@ -181,7 +181,7 @@ ROCKET_LAUNCHER = ItemDef(
 THUNDERBOLT = ItemDef(
     name='Thunderbolt',
     item_type=ItemType.WEAPON,
-    char=')',
+    char='~',  # lightning gun
     color='#00BFFF',
     damage_min=30,
     damage_max=30,  # 30 damage per cell
@@ -359,18 +359,30 @@ ALL_HEALTH = [SMALL_HEALTH, MEDIUM_HEALTH, MEGAHEALTH]
 
 ALL_POWERUPS = [QUAD_DAMAGE, PENTAGRAM, RING_OF_SHADOWS, BIOSUIT]
 
-ALL_ITEMS = ALL_WEAPONS + ALL_AMMO + ALL_ARMOR + ALL_HEALTH + ALL_POWERUPS
+# ============================================================
+# SPECIAL ITEMS
+# ============================================================
+
+RUNE = ItemDef(
+    name='Rune',
+    item_type=ItemType.POWERUP,
+    char='&',
+    color='#FFD700',
+    description='The Rune of power. Bring it to the entrance to win.',
+)
+
+ALL_ITEMS = ALL_WEAPONS + ALL_AMMO + ALL_ARMOR + ALL_HEALTH + ALL_POWERUPS + [RUNE]
 
 ITEM_BY_NAME = {item.name: item for item in ALL_ITEMS}
 
 
-def create_item(item_def: ItemDef, quantity: int = 0) -> Item:
+def create_item(item_def: ItemDef, quantity: Optional[int] = None) -> Item:
     """Create an item instance from a definition.
 
     For ammo items, quantity defaults to the ammo_amount from the definition.
     For all other items, quantity defaults to 1.
     """
-    if quantity == 0:
+    if quantity is None:
         if item_def.item_type == ItemType.AMMO:
             quantity = item_def.ammo_amount
         else:

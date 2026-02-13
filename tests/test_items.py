@@ -65,8 +65,8 @@ class TestItemDefinitions:
         assert len(ALL_POWERUPS) == 4
 
     def test_total_item_count(self):
-        """8 weapons + 4 ammo + 3 armor + 3 health + 4 powerups = 22 items."""
-        assert len(ALL_ITEMS) == 22
+        """8 weapons + 4 ammo + 3 armor + 3 health + 4 powerups + 1 rune = 23 items."""
+        assert len(ALL_ITEMS) == 23
 
 
 class TestWeaponStats:

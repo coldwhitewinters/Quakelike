@@ -161,6 +161,22 @@ class TestInventorySearch:
         inv = Inventory()
         assert inv.find_by_name('Nonexistent') is None
 
+    def test_find_by_identity(self):
+        inv = Inventory()
+        axe1 = create_item(AXE)
+        axe2 = create_item(AXE)
+        inv.add_item(axe1)
+        inv.add_item(axe2)
+        assert inv.find_by_identity(axe1) == 0
+        assert inv.find_by_identity(axe2) == 1
+
+    def test_find_by_identity_not_present(self):
+        inv = Inventory()
+        axe1 = create_item(AXE)
+        axe2 = create_item(AXE)
+        inv.add_item(axe1)
+        assert inv.find_by_identity(axe2) is None
+
 
 class TestInventorySerialization:
     def test_to_dict(self):

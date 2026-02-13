@@ -84,6 +84,13 @@ class Inventory:
                 return i
         return None
 
+    def find_by_identity(self, target: Item) -> Optional[int]:
+        """Find index of a specific item instance by identity (is, not ==)."""
+        for i, item in enumerate(self.items):
+            if item is target:
+                return i
+        return None
+
     def to_dict(self) -> list[dict]:
         """Serialize for save/load."""
         return [item.to_dict() for item in self.items]

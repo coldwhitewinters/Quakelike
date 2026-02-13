@@ -4,6 +4,7 @@ from __future__ import annotations
 import random
 from typing import TYPE_CHECKING
 
+from quakelike.constants import TILE_WATER
 from quakelike.entity import Position
 from quakelike.enemies import Enemy, AttackType
 from quakelike.combat import enemy_attack
@@ -88,7 +89,6 @@ def _wander(enemy: Enemy, game_map: GameMap, rng: random.Random) -> None:
             game_map.get_enemy_at(ny, nx) is None):
         # Check water avoidance
         if enemy.enemy_def.avoids_water:
-            from quakelike.constants import TILE_WATER
             if game_map.get_tile(ny, nx) == TILE_WATER:
                 return
         enemy.pos = Position(ny, nx)
@@ -131,7 +131,6 @@ def _move_toward_player(enemy: Enemy, player: Player,
         if game_map.is_walkable(ny, nx):
             # Water check
             if enemy.enemy_def.avoids_water:
-                from quakelike.constants import TILE_WATER
                 if game_map.get_tile(ny, nx) == TILE_WATER:
                     continue
             enemy.pos = Position(ny, nx)

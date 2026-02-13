@@ -14,7 +14,7 @@ from quakelike.constants import (
 )
 from quakelike.entity import Position
 from quakelike.items import (
-    Item, ItemDef, create_item,
+    Item, ItemDef, create_item, RUNE,
     ALL_WEAPONS, ALL_AMMO, ALL_ARMOR, ALL_HEALTH, ALL_POWERUPS,
     AXE, SHOTGUN, SHELLS_SMALL, SMALL_HEALTH, MEDIUM_HEALTH,
 )
@@ -86,7 +86,8 @@ class GameMap:
         """Check if a tile can be walked on."""
         tile = self.get_tile(y, x)
         return tile in (TILE_FLOOR, TILE_DOOR, TILE_SLIPGATE_DOWN,
-                        TILE_SLIPGATE_UP, TILE_ENTRANCE, TILE_WATER)
+                        TILE_SLIPGATE_UP, TILE_ENTRANCE, TILE_WATER,
+                        TILE_LAVA)
 
     def is_blocking(self, y: int, x: int) -> bool:
         """Check if a tile blocks movement."""
@@ -147,8 +148,8 @@ class GameMap:
             for dx in range(-radius, radius + 1):
                 ny, nx = y + dy, x + dx
                 if 0 <= ny < self.height and 0 <= nx < self.width:
-                    if abs(dy) + abs(dx) <= radius:
-                        # Simple LOS check
+                    # Use Chebyshev distance for consistent square FOV
+                    if max(abs(dy), abs(dx)) <= radius:
                         if self._has_los(y, x, ny, nx):
                             self.explored.add((ny, nx))
 
@@ -194,6 +195,18 @@ def bresenham_line(y1: int, x1: int, y2: int, x2: int) -> list[tuple[int, int]]:
     return points
 
 
+def _find_safe_start(gmap: GameMap, anchor: Position) -> Position:
+    """Find a walkable tile near the anchor position for player placement."""
+    # Try the tile directly below first
+    for dy, dx in [(1, 0), (-1, 0), (0, 1), (0, -1),
+                   (1, 1), (1, -1), (-1, 1), (-1, -1)]:
+        ny, nx = anchor.y + dy, anchor.x + dx
+        if gmap.is_walkable(ny, nx):
+            return Position(ny, nx)
+    # Fallback: return anchor itself
+    return anchor.copy()
+
+
 def generate_map(level: int, rng: random.Random) -> GameMap:
     """Generate a procedural map for a given level.
 
@@ -209,24 +222,33 @@ def generate_map(level: int, rng: random.Random) -> GameMap:
     for room in rooms:
         _carve_room(gmap, room)
 
-    # Connect rooms with corridors
+    # Connect rooms with corridors (sequential + loop connections)
     for i in range(len(rooms) - 1):
         _connect_rooms(gmap, rooms[i], rooms[i + 1], rng)
+
+    # Add extra connections for loops (Quake-like non-linear layout)
+    if len(rooms) > 3:
+        num_extra = rng.randint(1, max(1, len(rooms) // 3))
+        for _ in range(num_extra):
+            r1 = rng.choice(rooms)
+            r2 = rng.choice(rooms)
+            if r1 is not r2:
+                _connect_rooms(gmap, r1, r2, rng)
 
     # Add doors at corridor-room junctions
     _add_doors(gmap, rng)
 
-    # Place slipgates
+    # Place slipgates (BEFORE environment features to protect them)
     if level == 0:
         # First map has entrance
         gmap.entrance_pos = rooms[0].center
         gmap.set_tile(rooms[0].center.y, rooms[0].center.x, TILE_ENTRANCE)
-        gmap.player_start = Position(rooms[0].center.y + 1, rooms[0].center.x)
+        gmap.player_start = _find_safe_start(gmap, rooms[0].center)
     else:
         # Slipgate up (back to previous map)
         gmap.slipgate_up_pos = rooms[0].center
         gmap.set_tile(rooms[0].center.y, rooms[0].center.x, TILE_SLIPGATE_UP)
-        gmap.player_start = Position(rooms[0].center.y + 1, rooms[0].center.x)
+        gmap.player_start = _find_safe_start(gmap, rooms[0].center)
 
     if level < NUM_MAPS - 1:
         # Slipgate down (to next map)
@@ -245,17 +267,8 @@ def generate_map(level: int, rng: random.Random) -> GameMap:
 
     # Place rune on last map
     if level == NUM_MAPS - 1:
-        from quakelike.items import ItemDef, ItemType, create_item
-        rune_def = ItemDef(
-            name='Rune',
-            item_type=ItemType.POWERUP,
-            char='&',
-            color='#FFD700',
-            description='The Rune of power. Bring it to the entrance to win.',
-        )
-        rune = create_item(rune_def)
         last_room = rooms[-1]
-        gmap.add_item_at(last_room.center.y, last_room.center.x, rune)
+        gmap.add_item_at(last_room.center.y, last_room.center.x, create_item(RUNE))
 
     return gmap
 
@@ -337,7 +350,7 @@ def _add_environment_features(gmap: GameMap, rooms: list[Room],
     if len(rooms) < 3:
         return
 
-    # Possibly add water to one room
+    # Possibly add water to one room (avoid first and last rooms)
     if rng.random() < 0.3:
         room = rng.choice(rooms[1:-1]) if len(rooms) > 2 else rooms[0]
         _add_pool(gmap, room, TILE_WATER, rng)
@@ -359,19 +372,18 @@ def _add_pool(gmap: GameMap, room: Room, tile: str,
         for dx in range(-radius, radius + 1):
             if abs(dy) + abs(dx) <= radius:
                 ny, nx = center.y + dy, center.x + dx
+                # Only replace floor tiles, and not the exact center
                 if (gmap.get_tile(ny, nx) == TILE_FLOOR and
-                        ny != center.y or nx != center.x):
+                        (ny != center.y or nx != center.x)):
                     gmap.set_tile(ny, nx, tile)
 
 
 def _place_items(gmap: GameMap, level: int, rooms: list[Room],
                  rng: random.Random) -> None:
     """Place items throughout the map based on level."""
-    # Number of items scales with level
     num_items = rng.randint(3, 6) + level // 5
 
-    # Available item pools based on level progression
-    weapon_pool = [w for w in ALL_WEAPONS if w != AXE]  # Axe is starting weapon
+    weapon_pool = [w for w in ALL_WEAPONS if w != AXE]
     ammo_pool = ALL_AMMO
     health_pool = ALL_HEALTH
     armor_pool = ALL_ARMOR
@@ -383,25 +395,18 @@ def _place_items(gmap: GameMap, level: int, rooms: list[Room],
         if pos is None:
             continue
 
-        # Weighted item selection
         roll = rng.random()
         if roll < 0.15 and level > 2:
-            # Weapon (rarer)
             item_def = rng.choice(weapon_pool)
         elif roll < 0.40:
-            # Ammo
             item_def = rng.choice(ammo_pool)
         elif roll < 0.60:
-            # Health
             item_def = rng.choice(health_pool)
         elif roll < 0.75 and level > 3:
-            # Armor
             item_def = rng.choice(armor_pool)
         elif roll < 0.85 and level > 10:
-            # Powerup
             item_def = rng.choice(powerup_pool)
         else:
-            # Default to ammo or health
             item_def = rng.choice(ammo_pool + health_pool)
 
         gmap.add_item_at(pos.y, pos.x, create_item(item_def))
@@ -410,29 +415,23 @@ def _place_items(gmap: GameMap, level: int, rooms: list[Room],
 def _place_enemies(gmap: GameMap, level: int, rooms: list[Room],
                    rng: random.Random) -> None:
     """Place enemies on the map based on level."""
-    # Filter enemies by level requirement
     available = [e for e in ALL_ENEMIES if e.min_map_level <= level + 1]
     if not available:
         return
 
-    # Number of enemies scales with level
     num_enemies = rng.randint(2, 4) + level // 3
 
     for _ in range(num_enemies):
-        # Don't put enemies in the first room (player spawn)
         room = rng.choice(rooms[1:] if len(rooms) > 1 else rooms)
         pos = _random_floor_in_room(gmap, room, rng)
         if pos is None:
             continue
 
-        # Check no enemy already there
         if gmap.get_enemy_at(pos.y, pos.x) is not None:
             continue
 
-        # Weight toward lower-tier enemies
         weights = []
         for e in available:
-            # Higher level enemies are rarer
             w = max(1, 10 - (e.min_map_level - level) if e.min_map_level <= level + 1 else 1)
             weights.append(w)
 

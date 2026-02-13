@@ -17,13 +17,17 @@ from quakelike.constants import (
     KEY_SLIPGATE_DOWN, KEY_SLIPGATE_UP,
     KEY_NAV_UP, KEY_NAV_DOWN, KEY_NAV_LEFT, KEY_NAV_RIGHT,
     MAX_VISIBLE_MESSAGES,
+    COLOR_WALL, COLOR_FLOOR, COLOR_DOOR, COLOR_SLIPGATE,
+    COLOR_ENTRANCE, COLOR_WATER, COLOR_LAVA,
 )
 from quakelike.entity import Position
 from quakelike.player import Player
-from quakelike.gamemap import GameMap, generate_map
+from quakelike.gamemap import GameMap, generate_map, _find_safe_start
 from quakelike.message import MessageLog
-from quakelike.items import Item, ItemType, item_from_name, ITEM_BY_NAME
-from quakelike.enemies import Enemy
+from quakelike.items import (
+    Item, ItemType, AmmoType, item_from_name, ITEM_BY_NAME, RUNE, create_item,
+)
+from quakelike.enemies import Enemy, ENEMY_BY_NAME
 from quakelike.combat import player_melee_attack, player_fire_weapon
 from quakelike.ai import update_enemy, get_enemies_in_los
 
@@ -50,6 +54,8 @@ class Game:
     seed: int = 0
     turn: int = 0
 
+    quit: bool = False
+
     # UI state
     inventory_cursor: int = 0
     loot_cursor: int = 0
@@ -71,6 +77,7 @@ class Game:
         self.maps = {}
         self.turn = 0
         self.state = GameState.PLAYING
+        self.quit = False
 
         # Generate first map
         first_map = generate_map(0, self.rng)
@@ -128,6 +135,7 @@ class Game:
             self._save_game()
         elif key == KEY_QUIT:
             self.state = GameState.GAME_OVER
+            self.quit = True
             self.message_log.add('You quit the game.')
 
         return self._get_render_state()
@@ -208,12 +216,9 @@ class Game:
         self.player.current_map = next_idx
         new_map = self.current_map
 
-        # Place player at the slipgate up position
+        # Place player at a safe position near the slipgate up
         if new_map.slipgate_up_pos:
-            self.player.pos = Position(
-                new_map.slipgate_up_pos.y + 1,
-                new_map.slipgate_up_pos.x
-            )
+            self.player.pos = _find_safe_start(new_map, new_map.slipgate_up_pos)
         elif new_map.player_start:
             self.player.pos = new_map.player_start.copy()
 
@@ -241,12 +246,9 @@ class Game:
         self.player.current_map = prev_idx
         prev_map = self.maps[prev_idx]
 
-        # Place player at the slipgate down position
+        # Place player at a safe position near the slipgate down
         if prev_map.slipgate_down_pos:
-            self.player.pos = Position(
-                prev_map.slipgate_down_pos.y + 1,
-                prev_map.slipgate_down_pos.x
-            )
+            self.player.pos = _find_safe_start(prev_map, prev_map.slipgate_down_pos)
         elif prev_map.player_start:
             self.player.pos = prev_map.player_start.copy()
 
@@ -463,6 +465,8 @@ class Game:
         if not self.player.is_alive:
             self.state = GameState.GAME_OVER
             self.message_log.add('You have died. Game over.')
+            # Permadeath: delete save file
+            self._delete_save()
             return
 
         # Tick powerups
@@ -483,6 +487,13 @@ class Game:
         with open('saves/savegame.json', 'w') as f:
             json.dump(save_data, f)
         self.message_log.add('Game saved.')
+
+    def _delete_save(self) -> None:
+        """Delete save file for permadeath."""
+        try:
+            os.remove('saves/savegame.json')
+        except FileNotFoundError:
+            pass
 
     def load_game(self) -> bool:
         """Load game from file. Returns True on success."""
@@ -564,8 +575,6 @@ class Game:
 
     def _deserialize(self, data: dict) -> None:
         """Restore game state from dict."""
-        from quakelike.enemies import ENEMY_BY_NAME
-
         self.seed = data['seed']
         self.rng = random.Random(self.seed)
         self.turn = data['turn']
@@ -600,14 +609,7 @@ class Game:
                         item = item_from_name(name, idata['quantity'])
                         gmap.add_item_at(y, x, item)
                     elif name == 'Rune':
-                        # Recreate rune
-                        from quakelike.items import ItemDef, ItemType, create_item
-                        rune_def = ItemDef(
-                            name='Rune', item_type=ItemType.POWERUP,
-                            char='&', color='#FFD700',
-                            description='The Rune of power.',
-                        )
-                        gmap.add_item_at(y, x, create_item(rune_def))
+                        gmap.add_item_at(y, x, create_item(RUNE))
 
             if map_data['slipgate_down']:
                 gmap.slipgate_down_pos = Position(*map_data['slipgate_down'])
@@ -641,13 +643,7 @@ class Game:
                 item = item_from_name(name, idata['quantity'])
                 self.player.inventory.items.append(item)
             elif name == 'Rune':
-                from quakelike.items import ItemDef, ItemType, create_item
-                rune_def = ItemDef(
-                    name='Rune', item_type=ItemType.POWERUP,
-                    char='&', color='#FFD700',
-                    description='The Rune of power.',
-                )
-                self.player.inventory.items.append(create_item(rune_def))
+                self.player.inventory.items.append(create_item(RUNE))
 
         # Restore equipped weapon references
         if pdata['equipped_weapon']:
@@ -715,7 +711,6 @@ class Game:
         # Build status bar data
         weapon_name = p.equipped_weapon.name if p.equipped_weapon else 'None'
         ammo_info = {}
-        from quakelike.items import AmmoType
         for at in AmmoType:
             ammo_info[at.name.lower()] = p.inventory.get_ammo_count(at)
 
@@ -791,15 +786,12 @@ class Game:
             'show_loot': self.state == GameState.LOOT,
             'show_message_log': self.state == GameState.MESSAGE_LOG,
             'message_log_scroll': self.message_log_scroll,
+            'quit': self.quit,
         }
 
 
 def _tile_color(tile: str) -> str:
     """Get color for a tile character."""
-    from quakelike.constants import (
-        COLOR_WALL, COLOR_FLOOR, COLOR_DOOR, COLOR_SLIPGATE,
-        COLOR_ENTRANCE, COLOR_WATER, COLOR_LAVA,
-    )
     colors = {
         '#': COLOR_WALL,
         '.': COLOR_FLOOR,

@@ -4,7 +4,7 @@ import pytest
 from quakelike.entity import Position
 from quakelike.player import Player
 from quakelike.items import (
-    create_item, ItemType,
+    create_item, ItemType, RUNE,
     AXE, SHOTGUN, SUPER_SHOTGUN, SHELLS_SMALL, NAILS_SMALL,
     GREEN_ARMOR, YELLOW_ARMOR, RED_ARMOR,
     SMALL_HEALTH, MEDIUM_HEALTH, MEGAHEALTH,
@@ -325,10 +325,96 @@ class TestPlayerRune:
         assert not p.has_rune()
 
     def test_has_rune(self):
-        from quakelike.items import ItemDef, ItemType, create_item as ci
         p = Player.create(Position(0, 0))
-        rune_def = ItemDef(name='Rune', item_type=ItemType.POWERUP,
-                           char='&', color='#FFD700')
-        rune = ci(rune_def)
+        rune = create_item(RUNE)
         p.inventory.add_item(rune)
         assert p.has_rune()
+
+
+class TestArmorReplacement:
+    """Armor should only replace if the new armor is better."""
+
+    def test_green_does_not_replace_red(self):
+        p = Player.create(Position(0, 0))
+        # Apply red armor first
+        red = create_item(RED_ARMOR)
+        p.inventory.add_item(red)
+        p.apply_armor(red)
+        assert p.armor == 200
+        assert p.armor_absorption == 0.8
+
+        # Green armor is worse, should NOT replace
+        green = create_item(GREEN_ARMOR)
+        p.inventory.add_item(green)
+        result = p.apply_armor(green)
+        assert not result
+        assert p.armor == 200  # Red remains
+        assert p.armor_absorption == 0.8
+
+    def test_red_replaces_green(self):
+        p = Player.create(Position(0, 0))
+        green = create_item(GREEN_ARMOR)
+        p.inventory.add_item(green)
+        p.apply_armor(green)
+        assert p.armor == 100
+        assert p.armor_absorption == 0.3
+
+        red = create_item(RED_ARMOR)
+        p.inventory.add_item(red)
+        result = p.apply_armor(red)
+        assert result
+        assert p.armor == 200
+        assert p.armor_absorption == 0.8
+
+    def test_yellow_replaces_green(self):
+        p = Player.create(Position(0, 0))
+        green = create_item(GREEN_ARMOR)
+        p.inventory.add_item(green)
+        p.apply_armor(green)
+
+        yellow = create_item(YELLOW_ARMOR)
+        p.inventory.add_item(yellow)
+        result = p.apply_armor(yellow)
+        assert result
+        assert p.armor == 150
+
+    def test_armor_replaces_no_armor(self):
+        p = Player.create(Position(0, 0))
+        green = create_item(GREEN_ARMOR)
+        p.inventory.add_item(green)
+        result = p.apply_armor(green)
+        assert result
+
+
+class TestItemRemovalByIdentity:
+    """Items should be removed by identity (is), not by name."""
+
+    def test_activate_removes_correct_health_pack(self):
+        p = Player.create(Position(0, 0))
+        p.health = 50
+        hp1 = create_item(SMALL_HEALTH)
+        hp2 = create_item(SMALL_HEALTH)
+        p.inventory.add_item(hp1)
+        p.inventory.add_item(hp2)
+        assert p.inventory.count == 3  # axe + 2 health packs
+
+        # Activate hp2 specifically
+        success, msg = p.activate_item(hp2)
+        assert success
+        assert p.inventory.count == 2  # axe + hp1
+        # Check by identity (is), not equality (==)
+        assert any(item is hp1 for item in p.inventory.items)
+        assert not any(item is hp2 for item in p.inventory.items)
+
+    def test_activate_armor_removes_correct_item(self):
+        p = Player.create(Position(0, 0))
+        g1 = create_item(GREEN_ARMOR)
+        y1 = create_item(YELLOW_ARMOR)
+        p.inventory.add_item(g1)
+        p.inventory.add_item(y1)
+
+        # Activate yellow (which is better than green)
+        success, msg = p.activate_item(y1)
+        assert success
+        assert g1 in p.inventory.items
+        assert y1 not in p.inventory.items
