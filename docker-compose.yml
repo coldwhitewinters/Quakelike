@@ -6,5 +6,9 @@ services:
     volumes:
       - .:/app
       - /app/__pycache__
+      - saves_data:/app/saves
     environment:
-      - FLASK_DEBUG=1
+      - FLASK_DEBUG=${FLASK_DEBUG:-1}
+
+volumes:
+  saves_data:

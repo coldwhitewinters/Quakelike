@@ -15,3 +15,11 @@ htmlcov
 saves
 .mypy_cache
 .ruff_cache
+.DS_Store
+*.swp
+*.swo
+.idea/
+*.log
+.env
+.env.*
+node_modules

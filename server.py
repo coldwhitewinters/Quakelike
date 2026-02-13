@@ -1,12 +1,15 @@
 """Flask web server for Quakelike."""
 
+import os
+
 from flask import Flask, render_template, send_from_directory
 from flask_socketio import SocketIO, emit
 
 from quakelike.game import Game
 
 app = Flask(__name__, static_folder='static', template_folder='static')
-socketio = SocketIO(app, cors_allowed_origins='*')
+cors_origins = os.getenv('CORS_ORIGINS', '*')
+socketio = SocketIO(app, cors_allowed_origins=cors_origins)
 
 # Global game instance per session (single player for now)
 games: dict[str, Game] = {}
