@@ -11,7 +11,11 @@ from quakelike.constants import (
     TILE_WALL, TILE_FLOOR, TILE_SLIPGATE_DOWN, TILE_SLIPGATE_UP,
     TILE_ENTRANCE, TILE_DOOR, TILE_WATER, TILE_LAVA,
 )
-from quakelike.items import create_item, AXE, SHOTGUN
+from quakelike.items import (
+    create_item, AXE, SHOTGUN,
+    SMALL_HEALTH, MEDIUM_HEALTH, MEGAHEALTH,
+    ItemType,
+)
 
 
 class TestRoom:
@@ -290,3 +294,181 @@ class TestMapGeneration:
         gmap = generate_map(0, rng)
         gmap.reveal_around(gmap.player_start.y, gmap.player_start.x)
         assert len(gmap.explored) > 0
+
+
+class TestPowerupScarcity:
+    """Tests that powerups are rare and megahealth has reduced weight."""
+
+    def _collect_all_items(self, gmap: GameMap) -> list:
+        """Flatten all items placed on the map into a single list."""
+        items = []
+        for item_list in gmap.items_on_ground.values():
+            items.extend(item_list)
+        return items
+
+    def test_no_powerups_on_low_levels(self):
+        """Powerups must not appear on levels <= 15."""
+        for level in range(16):  # 0 through 15 inclusive
+            # Run multiple seeds to reduce false-negative risk
+            for seed in range(10):
+                rng = random.Random(seed)
+                gmap = generate_map(level, rng)
+                items = self._collect_all_items(gmap)
+                powerup_names = [
+                    i.name for i in items
+                    if i.item_type == ItemType.POWERUP and i.name != 'Rune'
+                ]
+                assert powerup_names == [], (
+                    f"Found powerup(s) {powerup_names} on level {level} "
+                    f"(seed {seed}) — powerups should not appear on levels <= 15"
+                )
+
+    def test_powerups_rare_on_high_levels(self):
+        """On levels > 15, powerups should be rare (true rate ~30%).
+
+        Uses 200 seeds to reduce sampling variance enough that a 40% ceiling
+        reliably rejects a broken implementation (e.g., the old 15% window)
+        while accommodating the true ~30% rate without false failures.
+        """
+        maps_with_powerup = 0
+        total = 200
+        for seed in range(total):
+            rng = random.Random(seed)
+            gmap = generate_map(20, rng)  # well above the threshold
+            items = self._collect_all_items(gmap)
+            has_powerup = any(
+                i.item_type == ItemType.POWERUP and i.name != 'Rune'
+                for i in items
+            )
+            if has_powerup:
+                maps_with_powerup += 1
+
+        rate = maps_with_powerup / total
+        assert rate < 0.40, (
+            f"Powerup appearance rate {rate:.0%} over {total} maps at level 20 "
+            f"is too high; expected < 40% (true rate ~30%)"
+        )
+
+    def test_megahealth_rarer_than_small_and_medium(self):
+        """MEGAHEALTH should appear less often than SMALL_HEALTH or MEDIUM_HEALTH."""
+        counts = {SMALL_HEALTH.name: 0, MEDIUM_HEALTH.name: 0, MEGAHEALTH.name: 0}
+        for seed in range(200):
+            rng = random.Random(seed)
+            gmap = generate_map(10, rng)
+            for item_list in gmap.items_on_ground.values():
+                for item in item_list:
+                    if item.name in counts:
+                        counts[item.name] += 1
+
+        assert counts[MEGAHEALTH.name] < counts[SMALL_HEALTH.name], (
+            f"MEGAHEALTH ({counts[MEGAHEALTH.name]}) should appear less often "
+            f"than SMALL_HEALTH ({counts[SMALL_HEALTH.name]})"
+        )
+        assert counts[MEGAHEALTH.name] < counts[MEDIUM_HEALTH.name], (
+            f"MEGAHEALTH ({counts[MEGAHEALTH.name]}) should appear less often "
+            f"than MEDIUM_HEALTH ({counts[MEDIUM_HEALTH.name]})"
+        )
+
+    def test_megahealth_not_in_fallback(self):
+        """The fallback item pool must never produce MEGAHEALTH.
+
+        The fallback else-branch triggers when no other condition matches.
+        On levels <= 3, both the weapon and armor branches are suppressed,
+        so rolls in the ranges 0.15-0.40 (ammo) and 0.75-1.00 (else, since
+        powerup is also suppressed) drive the fallback.  We use a mock RNG
+        that always returns a roll of 0.90 — well above every conditional
+        threshold — to force the else branch exclusively and confirm the
+        resulting items are never MEGAHEALTH.
+        """
+        from unittest.mock import patch
+
+        class _FixedRoll:
+            """RNG that always returns 0.90 for random() calls."""
+            def __init__(self):
+                self._real = random.Random(0)
+
+            def random(self):
+                return 0.90  # always falls into the else branch
+
+            def randint(self, a, b):
+                return self._real.randint(a, b)
+
+            def choice(self, seq):
+                return self._real.choice(seq)
+
+            def choices(self, population, weights=None, k=1):
+                return self._real.choices(population, weights=weights, k=k)
+
+        from quakelike.gamemap import _place_items, GameMap, Room
+
+        # Build a minimal single-room map so _place_items can place items
+        gmap = GameMap()
+        room = Room(1, 1, 10, 10)
+        for y in range(room.y, room.y2):
+            for x in range(room.x, room.x2):
+                gmap.set_tile(y, x, 'F')  # mark as floor
+        # Use TILE_FLOOR value
+        from quakelike.constants import TILE_FLOOR
+        for y in range(room.y, room.y2):
+            for x in range(room.x, room.x2):
+                gmap.set_tile(y, x, TILE_FLOOR)
+        gmap.rooms = [room]
+
+        rng = _FixedRoll()
+        _place_items(gmap, level=0, rooms=[room], rng=rng)
+
+        items = self._collect_all_items(gmap)
+        assert len(items) > 0, "Expected at least one item to be placed"
+        for item in items:
+            assert item.name != MEGAHEALTH.name, (
+                f"MEGAHEALTH must not appear in the fallback item pool; "
+                f"got {item.name}"
+            )
+
+
+class TestUnlimitedViewDistance:
+    """Tests for the unlimited-range reveal_around()."""
+
+    def test_default_radius_covers_full_map(self):
+        """Default radius must be >= MAP_WIDTH + MAP_HEIGHT (120)."""
+        import inspect
+        sig = inspect.signature(GameMap.reveal_around)
+        default_radius = sig.parameters['radius'].default
+        assert default_radius >= MAP_WIDTH + MAP_HEIGHT, (
+            f"Default radius {default_radius} is too small; "
+            f"must be >= MAP_WIDTH + MAP_HEIGHT = {MAP_WIDTH + MAP_HEIGHT}"
+        )
+
+    def test_distant_open_tile_gets_revealed(self):
+        """A tile far away with clear LOS should be revealed."""
+        gmap = GameMap()
+        # Carve a long open corridor from x=1 to x=78 on row 5
+        for x in range(1, MAP_WIDTH - 1):
+            gmap.set_tile(5, x, TILE_FLOOR)
+
+        # Player stands at the left end
+        gmap.reveal_around(5, 1)
+
+        # The far-right end of the corridor should be visible
+        far_x = MAP_WIDTH - 2
+        assert (5, far_x) in gmap.explored, (
+            f"Tile (5, {far_x}) should be revealed with unlimited view distance"
+        )
+
+    def test_tile_behind_wall_not_revealed(self):
+        """A tile blocked by a wall must not be revealed even with large radius."""
+        gmap = GameMap()
+        # Open corridor on row 5
+        for x in range(1, MAP_WIDTH - 1):
+            gmap.set_tile(5, x, TILE_FLOOR)
+        # Place a wall across the corridor in the middle
+        wall_x = MAP_WIDTH // 2
+        gmap.set_tile(5, wall_x, TILE_WALL)
+
+        gmap.reveal_around(5, 1)
+
+        # Everything past the wall should be blocked
+        for x in range(wall_x + 1, MAP_WIDTH - 1):
+            assert (5, x) not in gmap.explored, (
+                f"Tile (5, {x}) is behind a wall and should NOT be revealed"
+            )

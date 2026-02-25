@@ -303,7 +303,7 @@ MEGAHEALTH = ItemDef(
     char='+',
     color='#0000FF',
     heal_amount=100,
-    description='Restores 100 health.',
+    description='Overheals to 200 HP, decaying to 100 HP over time.',
 )
 
 # ============================================================

@@ -11,7 +11,7 @@ from quakelike.constants import (
 from quakelike.entity import Entity, Position
 from quakelike.inventory import Inventory
 from quakelike.items import (
-    Item, ItemType, ItemDef, AmmoType, AXE, create_item,
+    Item, ItemType, ItemDef, AmmoType, AXE, SHOTGUN, SHELLS_SMALL, create_item,
 )
 
 
@@ -33,6 +33,9 @@ class Player(Entity):
     invisibility_turns: int = 0
     biosuit_turns: int = 0
 
+    # Megahealth overheal decay
+    megahealth_decay: bool = False
+
     # Targeting
     target_index: int = -1
 
@@ -47,10 +50,14 @@ class Player(Entity):
             health=PLAYER_START_HEALTH,
             max_health=PLAYER_MAX_HEALTH,
         )
-        # Start with axe
+        # Start with axe (equipped) and shotgun with shells
         axe = create_item(AXE)
         player.inventory.add_item(axe)
         player.equipped_weapon = axe
+        shotgun = create_item(SHOTGUN)
+        player.inventory.add_item(shotgun)
+        shells = create_item(SHELLS_SMALL, quantity=25)
+        player.inventory.add_item(shells)
         return player
 
     def take_damage(self, amount: int) -> int:
@@ -162,6 +169,15 @@ class Player(Entity):
             return False, f'Current armor is better than {item.name}.'
 
         if item.item_type == ItemType.HEALTH:
+            if item.name == 'Megahealth':
+                new_health = min(self.health + 100, 200)
+                if new_health <= self.health:
+                    return False, 'Health is already at maximum Megahealth level.'
+                gained = new_health - self.health
+                self.health = new_health
+                self.megahealth_decay = True
+                self._remove_item_by_identity(item)
+                return True, f'Megahealth! Health boosted to {self.health} HP!'
             healed = self.apply_health(item)
             if healed > 0:
                 self._remove_item_by_identity(item)
@@ -203,6 +219,11 @@ class Player(Entity):
             self.biosuit_turns -= 1
             if self.biosuit_turns == 0:
                 messages.append('Biosuit has worn off.')
+        if self.megahealth_decay and self.health > 100:
+            self.health -= 1
+            if self.health == 100:
+                self.megahealth_decay = False
+                messages.append('Megahealth wearing off.')
         return messages
 
     def get_damage_multiplier(self) -> int:

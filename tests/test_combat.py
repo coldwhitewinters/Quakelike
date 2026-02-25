@@ -57,22 +57,20 @@ class TestFireWeapon:
     def test_fire_shotgun_at_target(self):
         rng = random.Random(42)
         player = Player.create(Position(10, 10))
-        shotgun = create_item(SHOTGUN)
-        shells = create_item(SHELLS_SMALL)
-        player.inventory.add_item(shotgun)
-        player.inventory.add_item(shells)
-        player.equip_weapon(shotgun)
+        # Player already has a shotgun and shells from starting loadout; equip the shotgun.
+        player.equip_weapon(player.inventory.items[1])  # index 1 = Shotgun
 
         gmap = make_test_map()
         enemy = Enemy.from_def(GRUNT, Position(10, 15))
         gmap.enemies.append(enemy)
 
+        initial_ammo = player.inventory.get_ammo_count(SHOTGUN.ammo_type)
         success, msg, extra = player_fire_weapon(player, enemy, gmap, rng)
         assert success
         assert enemy.health < GRUNT.health
-        # Shells consumed
+        # One shell consumed
         assert player.inventory.get_ammo_count(
-            SHOTGUN.ammo_type) < SHELLS_SMALL.ammo_amount
+            SHOTGUN.ammo_type) == initial_ammo - SHOTGUN.ammo_per_shot
 
     def test_fire_no_weapon(self):
         rng = random.Random(42)
@@ -86,9 +84,12 @@ class TestFireWeapon:
     def test_fire_no_ammo(self):
         rng = random.Random(42)
         player = Player.create(Position(10, 10))
-        shotgun = create_item(SHOTGUN)
-        player.inventory.add_item(shotgun)
-        player.equip_weapon(shotgun)
+        # Equip the starting shotgun but remove all shells so there is no ammo.
+        player.equip_weapon(player.inventory.items[1])  # index 1 = Shotgun
+        player.inventory.items = [
+            item for item in player.inventory.items
+            if item.item_def.ammo_type != SHOTGUN.ammo_type
+        ]
         gmap = make_test_map()
         enemy = Enemy.from_def(GRUNT, Position(10, 15))
         gmap.enemies.append(enemy)

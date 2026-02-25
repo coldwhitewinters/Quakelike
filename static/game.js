@@ -81,11 +81,18 @@ function sendInput(key) {
 document.addEventListener('keydown', (e) => {
     if (!gameState) return;
 
+    // Handle Alt+t first (clear target) before regular 't' handling
+    if (e.altKey && e.key === 't') {
+        e.preventDefault();
+        sendInput('Alt-t');
+        return;
+    }
+
     // Prevent default for game keys
     const gameKeys = [
         'h', 'j', 'k', 'l', 'y', 'u', 'b', 'n',
-        'i', 'x', 't', 'f', 'w', 'p', 'S', 'Q',
-        '>', '<', 'Enter', 'Escape',
+        'i', 'x', 't', 'T', 'f', 'w', 'p', 'S', 'Q',
+        '?', '>', '<', 'Enter', 'Escape', 'Tab',
         'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'
     ];
 
@@ -110,6 +117,8 @@ function render(state) {
     renderInventory(state);
     renderLoot(state);
     renderMessageLog(state);
+    renderExamine(state);
+    renderHelp(state);
     renderOverlays(state);
 }
 
@@ -122,7 +131,12 @@ function renderMap(state) {
         html += '<div class="map-row">';
         for (let x = 0; x < state.map_width; x++) {
             const tile = map[y][x];
-            html += `<span class="tile" style="color:${tile.color}">${escapeHtml(tile.char)}</span>`;
+            if (tile.cursor) {
+                // Examine cursor: invert colors with a highlight style
+                html += `<span class="tile examine-cursor" style="color:#000;background-color:#FFD700">${escapeHtml(tile.char)}</span>`;
+            } else {
+                html += `<span class="tile" style="color:${tile.color}">${escapeHtml(tile.char)}</span>`;
+            }
         }
         html += '</div>';
     }
@@ -171,7 +185,7 @@ function renderMessages(state) {
 function renderInventory(state) {
     const panel = document.getElementById('inventory-panel');
 
-    if (!state.show_inventory && state.state !== 'LOOT') {
+    if (!state.show_inventory) {
         panel.style.display = 'none';
         return;
     }
@@ -206,6 +220,7 @@ function renderInventory(state) {
 function renderLoot(state) {
     const panel = document.getElementById('loot-panel');
 
+    // Show loot panel whenever in INVENTORY or LOOT state
     if (!state.show_loot) {
         panel.style.display = 'none';
         return;
@@ -257,6 +272,83 @@ function renderMessageLog(state) {
 
     // Auto-scroll to bottom
     logDiv.scrollTop = logDiv.scrollHeight;
+}
+
+function renderExamine(state) {
+    let overlay = document.getElementById('examine-overlay');
+
+    if (!state.show_examine) {
+        if (overlay) overlay.style.display = 'none';
+        return;
+    }
+
+    // Create overlay if it doesn't exist
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'examine-overlay';
+        overlay.style.cssText = [
+            'position:absolute',
+            'bottom:0',
+            'left:0',
+            'right:0',
+            'background:#1a1a1a',
+            'border-top:1px solid #555',
+            'padding:4px 8px',
+            'font-family:monospace',
+            'font-size:13px',
+            'color:#FFD700',
+            'z-index:100',
+        ].join(';');
+        const mainArea = document.getElementById('main-area');
+        if (mainArea) {
+            mainArea.style.position = 'relative';
+            mainArea.appendChild(overlay);
+        } else {
+            document.getElementById('game-screen').appendChild(overlay);
+        }
+    }
+
+    const info = state.examine_info || '';
+    const cursor = state.examine_cursor || [0, 0];
+    overlay.textContent = `[EXAMINE] (${cursor[0]},${cursor[1]}) ${info}  -- Esc or x to exit`;
+    overlay.style.display = 'block';
+}
+
+function renderHelp(state) {
+    let overlay = document.getElementById('help-overlay');
+
+    if (!state.show_help) {
+        if (overlay) overlay.style.display = 'none';
+        return;
+    }
+
+    // Create overlay if it doesn't exist
+    if (!overlay) {
+        overlay = document.createElement('div');
+        overlay.id = 'help-overlay';
+        overlay.style.cssText = [
+            'position:fixed',
+            'top:50%',
+            'left:50%',
+            'transform:translate(-50%,-50%)',
+            'background:#111',
+            'border:2px solid #FFD700',
+            'padding:16px 24px',
+            'font-family:monospace',
+            'font-size:14px',
+            'color:#ccc',
+            'z-index:500',
+            'max-height:80vh',
+            'overflow-y:auto',
+            'min-width:400px',
+            'white-space:pre',
+        ].join(';');
+        document.body.appendChild(overlay);
+    }
+
+    const lines = state.help_content || [];
+    overlay.textContent = lines.join('\n');
+    overlay.style.display = 'block';
 }
 
 function renderOverlays(state) {
