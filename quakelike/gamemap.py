@@ -16,7 +16,7 @@ from quakelike.entity import Position
 from quakelike.items import (
     Item, ItemDef, create_item, RUNE,
     ALL_WEAPONS, ALL_AMMO, ALL_ARMOR, ALL_HEALTH, ALL_POWERUPS,
-    AXE, SHOTGUN, SHELLS_SMALL, SMALL_HEALTH, MEDIUM_HEALTH,
+    AXE, SHOTGUN, SHELLS_SMALL, SMALL_HEALTH, MEDIUM_HEALTH, MEGAHEALTH,
 )
 from quakelike.enemies import (
     Enemy, EnemyDef, ALL_ENEMIES,
@@ -146,16 +146,19 @@ class GameMap:
             return rng.choice(floor_tiles)
         return None
 
-    def reveal_around(self, y: int, x: int, radius: int = 6) -> None:
-        """Reveal tiles around a position (simple FOV)."""
+    def reveal_around(self, y: int, x: int, radius: int = 200) -> None:
+        """Reveal tiles around a position (simple FOV).
+
+        The default radius of 200 exceeds MAP_WIDTH + MAP_HEIGHT so every
+        tile on the map is a candidate; wall blocking is handled entirely
+        by the Bresenham LOS check.
+        """
         for dy in range(-radius, radius + 1):
             for dx in range(-radius, radius + 1):
                 ny, nx = y + dy, x + dx
                 if 0 <= ny < self.height and 0 <= nx < self.width:
-                    # Use Chebyshev distance for consistent square FOV
-                    if max(abs(dy), abs(dx)) <= radius:
-                        if self._has_los(y, x, ny, nx):
-                            self.explored.add((ny, nx))
+                    if self._has_los(y, x, ny, nx):
+                        self.explored.add((ny, nx))
 
     def _has_los(self, y1: int, x1: int, y2: int, x2: int) -> bool:
         """Simple line of sight check using Bresenham's line."""
@@ -395,13 +398,14 @@ def _add_pool(gmap: GameMap, room: Room, tile: str,
 def _place_items(gmap: GameMap, level: int, rooms: list[Room],
                  rng: random.Random) -> None:
     """Place items throughout the map based on level."""
-    num_items = rng.randint(3, 6) + level // 5
+    num_items = rng.randint(2, 5) + level // 5
 
     weapon_pool = [w for w in ALL_WEAPONS if w != AXE]
     ammo_pool = ALL_AMMO
-    health_pool = ALL_HEALTH
     armor_pool = ALL_ARMOR
     powerup_pool = ALL_POWERUPS
+    # Weighted health pool: SMALL/MEDIUM at 44% each, MEGAHEALTH at 12%
+    health_weights = [44, 44, 12]
 
     for _ in range(num_items):
         room = rng.choice(rooms[1:] if len(rooms) > 1 else rooms)
@@ -415,13 +419,18 @@ def _place_items(gmap: GameMap, level: int, rooms: list[Room],
         elif roll < 0.40:
             item_def = rng.choice(ammo_pool)
         elif roll < 0.60:
-            item_def = rng.choice(health_pool)
-        elif roll < 0.75 and level > 3:
+            item_def = rng.choices(
+                [SMALL_HEALTH, MEDIUM_HEALTH, MEGAHEALTH],
+                weights=health_weights,
+                k=1,
+            )[0]
+        elif roll < 0.82 and level > 3:
             item_def = rng.choice(armor_pool)
-        elif roll < 0.85 and level > 10:
+        elif roll < 0.87 and level > 15:
             item_def = rng.choice(powerup_pool)
         else:
-            item_def = rng.choice(ammo_pool + health_pool)
+            # Fallback: only non-mega health or ammo
+            item_def = rng.choice(ammo_pool + [SMALL_HEALTH, MEDIUM_HEALTH])
 
         gmap.add_item_at(pos.y, pos.x, create_item(item_def))
 

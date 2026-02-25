@@ -4,7 +4,7 @@ import pytest
 from quakelike.entity import Position
 from quakelike.player import Player
 from quakelike.items import (
-    create_item, ItemType, RUNE,
+    create_item, ItemType, AmmoType, RUNE,
     AXE, SHOTGUN, SUPER_SHOTGUN, SHELLS_SMALL, NAILS_SMALL,
     GREEN_ARMOR, YELLOW_ARMOR, RED_ARMOR,
     SMALL_HEALTH, MEDIUM_HEALTH, MEGAHEALTH,
@@ -24,11 +24,27 @@ class TestPlayerCreation:
         assert p.is_alive
         assert p.pos == Position(5, 5)
 
-    def test_starts_with_axe(self):
+    def test_starts_with_axe_equipped(self):
         p = Player.create(Position(0, 0))
         assert p.equipped_weapon is not None
         assert p.equipped_weapon.name == 'Axe'
-        assert p.inventory.count == 1
+
+    def test_starts_with_shotgun(self):
+        p = Player.create(Position(0, 0))
+        assert p.inventory.find_by_name('Shotgun') is not None
+
+    def test_starts_with_25_shells(self):
+        p = Player.create(Position(0, 0))
+        assert p.inventory.get_ammo_count(AmmoType.SHELLS) == 25
+
+    def test_starts_with_axe_shotgun_shells(self):
+        """Player starts with exactly 3 inventory items: axe, shotgun, shells."""
+        p = Player.create(Position(0, 0))
+        assert p.inventory.count == 3
+        names = [item.name for item in p.inventory.items]
+        assert 'Axe' in names
+        assert 'Shotgun' in names
+        assert 'Shells' in names
 
 
 class TestPlayerDamage:
@@ -96,8 +112,9 @@ class TestPlayerWeapons:
 
     def test_equip_not_in_inventory_fails(self):
         p = Player.create(Position(0, 0))
-        shotgun = create_item(SHOTGUN)
-        assert not p.equip_weapon(shotgun)
+        # Use Super Shotgun which is not part of the starting loadout
+        ssg = create_item(SUPER_SHOTGUN)
+        assert not p.equip_weapon(ssg)
 
     def test_swap_weapon(self):
         p = Player.create(Position(0, 0))
@@ -130,9 +147,12 @@ class TestPlayerWeapons:
 
     def test_cannot_fire_without_ammo(self):
         p = Player.create(Position(0, 0))
-        shotgun = create_item(SHOTGUN)
-        p.inventory.add_item(shotgun)
-        p.equip_weapon(shotgun)
+        # Equip the starting shotgun but remove all shells.
+        p.equip_weapon(p.inventory.items[1])  # index 1 = Shotgun
+        p.inventory.items = [
+            item for item in p.inventory.items
+            if item.item_def.ammo_type != AmmoType.SHELLS
+        ]
         assert not p.can_fire()
 
     def test_cannot_fire_no_weapon(self):
@@ -396,12 +416,12 @@ class TestItemRemovalByIdentity:
         hp2 = create_item(SMALL_HEALTH)
         p.inventory.add_item(hp1)
         p.inventory.add_item(hp2)
-        assert p.inventory.count == 3  # axe + 2 health packs
+        count_before = p.inventory.count  # axe + shotgun + shells + 2 health packs
 
         # Activate hp2 specifically
         success, msg = p.activate_item(hp2)
         assert success
-        assert p.inventory.count == 2  # axe + hp1
+        assert p.inventory.count == count_before - 1
         # Check by identity (is), not equality (==)
         assert any(item is hp1 for item in p.inventory.items)
         assert not any(item is hp2 for item in p.inventory.items)
@@ -418,3 +438,101 @@ class TestItemRemovalByIdentity:
         assert success
         assert g1 in p.inventory.items
         assert y1 not in p.inventory.items
+
+
+class TestMegahealth:
+    def test_megahealth_overheals_above_100(self):
+        """Megahealth can push health above the normal max of 100."""
+        p = Player.create(Position(0, 0))
+        mega = create_item(MEGAHEALTH)
+        p.inventory.add_item(mega)
+        success, msg = p.activate_item(mega)
+        assert success
+        assert p.health == 200
+        assert 'Megahealth' in msg
+
+    def test_megahealth_from_low_health(self):
+        """Megahealth adds 100 HP, capped at 200."""
+        p = Player.create(Position(0, 0))
+        p.health = 50
+        mega = create_item(MEGAHEALTH)
+        p.inventory.add_item(mega)
+        success, _ = p.activate_item(mega)
+        assert success
+        assert p.health == 150
+
+    def test_megahealth_caps_at_200(self):
+        """Health cannot exceed 200 from Megahealth."""
+        p = Player.create(Position(0, 0))
+        p.health = 180
+        mega = create_item(MEGAHEALTH)
+        p.inventory.add_item(mega)
+        success, _ = p.activate_item(mega)
+        assert success
+        assert p.health == 200
+
+    def test_megahealth_sets_decay_flag(self):
+        """Using Megahealth sets megahealth_decay to True."""
+        p = Player.create(Position(0, 0))
+        mega = create_item(MEGAHEALTH)
+        p.inventory.add_item(mega)
+        assert not p.megahealth_decay
+        p.activate_item(mega)
+        assert p.megahealth_decay
+
+    def test_megahealth_consumes_item(self):
+        """Megahealth is removed from inventory on use."""
+        p = Player.create(Position(0, 0))
+        mega = create_item(MEGAHEALTH)
+        p.inventory.add_item(mega)
+        p.activate_item(mega)
+        assert p.inventory.find_by_name('Megahealth') is None
+
+    def test_megahealth_decay_reduces_health_each_tick(self):
+        """Health decays by 1 per tick_powerups() call while above 100."""
+        p = Player.create(Position(0, 0))
+        p.health = 150
+        p.megahealth_decay = True
+        msgs = p.tick_powerups()
+        assert p.health == 149
+        assert len(msgs) == 0  # Not at 100 yet, no expiry message
+
+    def test_megahealth_decay_stops_at_100(self):
+        """Decay stops exactly when health reaches 100."""
+        p = Player.create(Position(0, 0))
+        p.health = 101
+        p.megahealth_decay = True
+        msgs = p.tick_powerups()
+        assert p.health == 100
+        assert not p.megahealth_decay
+        assert any('Megahealth' in m for m in msgs)
+
+    def test_megahealth_decay_decays_fully(self):
+        """Simulating all ticks: health returns to 100 from 200."""
+        p = Player.create(Position(0, 0))
+        p.health = 200
+        p.megahealth_decay = True
+        for _ in range(100):
+            p.tick_powerups()
+        assert p.health == 100
+        assert not p.megahealth_decay
+
+    def test_megahealth_no_decay_below_100(self):
+        """If health somehow drops below 100 while decay is active, decay stops."""
+        p = Player.create(Position(0, 0))
+        p.health = 80
+        p.megahealth_decay = True
+        # Health is not above 100, so decay should not trigger
+        msgs = p.tick_powerups()
+        assert p.health == 80
+        # megahealth_decay flag stays True but health is not decremented
+        assert p.megahealth_decay
+
+    def test_megahealth_at_200_returns_false_if_already_maxed(self):
+        """Cannot use Megahealth if health is already at 200."""
+        p = Player.create(Position(0, 0))
+        p.health = 200
+        mega = create_item(MEGAHEALTH)
+        p.inventory.add_item(mega)
+        success, msg = p.activate_item(mega)
+        assert not success

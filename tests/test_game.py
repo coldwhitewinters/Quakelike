@@ -182,13 +182,14 @@ class TestInventoryUI:
         py, px = game.player.pos.y, game.player.pos.x
         game.current_map.add_item_at(py, px, shotgun)
 
-        # Quick pick/drop should open loot panel
-        game.handle_input('x')
-        assert game.state == GameState.LOOT
-        assert game.active_panel == 'loot'
+        # 'i' opens both panels (INVENTORY state)
+        game.handle_input('i')
+        assert game.state == GameState.INVENTORY
 
-        # Pick it up
-        game.handle_input('x')
+        # Switch to loot panel and pick up with Tab
+        game.active_panel = 'loot'
+        game.loot_cursor = 0
+        game.handle_input('Tab')
         assert game.player.inventory.find_by_name('Shotgun') is not None
 
     def test_drop_item(self):
@@ -197,8 +198,8 @@ class TestInventoryUI:
         game.handle_input('i')
         game.active_panel = 'inventory'
         game.inventory_cursor = 0
-        # Drop the axe
-        game.handle_input('x')
+        # Drop the axe with Tab
+        game.handle_input('Tab')
         items = game.current_map.get_items_at(
             game.player.pos.y, game.player.pos.x)
         assert any(i.name == 'Axe' for i in items)
@@ -217,12 +218,11 @@ class TestInventoryUI:
 
 
 class TestTargeting:
-    def test_start_targeting(self):
+    def test_t_selects_target_stays_in_playing(self):
         game = Game()
         game.new_game(seed=42)
         # Place enemy in LOS
-        game.current_map.set_tile(10, 10, TILE_FLOOR)
-        game.current_map.set_tile(10, 15, TILE_FLOOR)
+        game.current_map.enemies.clear()
         for x in range(10, 16):
             game.current_map.set_tile(10, x, TILE_FLOOR)
         game.player.pos = Position(10, 10)
@@ -230,9 +230,11 @@ class TestTargeting:
         enemy = Enemy.from_def(GRUNT, Position(10, 15))
         game.current_map.enemies.append(enemy)
 
+        # 't' cycles targets from PLAYING state without entering a separate state
         game.handle_input('t')
-        assert game.state == GameState.TARGETING
+        assert game.state == GameState.PLAYING
         assert len(game.target_list) > 0
+        assert game.target_cursor >= 0
 
     def test_no_targets(self):
         game = Game()
@@ -245,6 +247,7 @@ class TestTargeting:
     def test_cycle_targets(self):
         game = Game()
         game.new_game(seed=42)
+        game.current_map.enemies.clear()
         for x in range(10, 25):
             game.current_map.set_tile(10, x, TILE_FLOOR)
         game.player.pos = Position(10, 10)
@@ -457,10 +460,8 @@ class TestEnvironmentalDamage:
         game.current_map.set_tile(10, 11, TILE_LAVA)
         game.player.pos = Position(10, 10)
         game.player.biosuit_turns = 10
-        game.current_map.enemies = [
-            e for e in game.current_map.enemies
-            if e.pos != Position(10, 11)
-        ]
+        # Clear all enemies so no enemy attack can interfere with the HP check
+        game.current_map.enemies = []
 
         initial_hp = game.player.health
         game.handle_input('l')
@@ -557,3 +558,47 @@ class TestSaveLoadRune:
         game2.load_game()
         items = game2.current_map.get_items_at(py, px)
         assert any(i.name == 'Rune' for i in items)
+
+
+class TestSaveLoadMegahealth:
+    def test_megahealth_decay_persists_across_save_load(self):
+        """megahealth_decay=True is serialized and restored on load."""
+        game = Game()
+        game.new_game(seed=42)
+        game.player.health = 150
+        game.player.megahealth_decay = True
+        game.handle_input('S')
+
+        game2 = Game()
+        game2.load_game()
+        assert game2.player.health == 150
+        assert game2.player.megahealth_decay is True
+
+    def test_megahealth_decay_false_persists_across_save_load(self):
+        """megahealth_decay=False is restored correctly (default state)."""
+        game = Game()
+        game.new_game(seed=42)
+        assert not game.player.megahealth_decay
+        game.handle_input('S')
+
+        game2 = Game()
+        game2.load_game()
+        assert game2.player.megahealth_decay is False
+
+    def test_save_load_missing_megahealth_field_defaults_false(self):
+        """Saves created before megahealth_decay field existed default to False."""
+        import json
+        game = Game()
+        game.new_game(seed=42)
+        game.handle_input('S')
+
+        # Simulate an old save by stripping the field
+        with open('saves/savegame.json', 'r') as f:
+            data = json.load(f)
+        del data['player']['megahealth_decay']
+        with open('saves/savegame.json', 'w') as f:
+            json.dump(data, f)
+
+        game2 = Game()
+        assert game2.load_game()
+        assert game2.player.megahealth_decay is False

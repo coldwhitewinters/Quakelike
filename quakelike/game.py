@@ -11,9 +11,10 @@ from typing import Optional
 from quakelike.constants import (
     DIRECTIONS, NUM_MAPS,
     TILE_SLIPGATE_DOWN, TILE_SLIPGATE_UP, TILE_ENTRANCE,
-    TILE_LAVA, TILE_WATER,
-    KEY_INVENTORY, KEY_PICK_DROP, KEY_USE, KEY_TARGET, KEY_FIRE,
-    KEY_SWAP_WEAPON, KEY_MESSAGE_LOG, KEY_SAVE, KEY_QUIT,
+    TILE_LAVA, TILE_WATER, TILE_WALL, TILE_FLOOR, TILE_DOOR,
+    KEY_INVENTORY, KEY_TRANSFER, KEY_EXAMINE, KEY_USE,
+    KEY_TARGET, KEY_TARGET_PREV, KEY_TARGET_CLEAR, KEY_FIRE,
+    KEY_SWAP_WEAPON, KEY_MESSAGE_LOG, KEY_HELP, KEY_SAVE, KEY_QUIT,
     KEY_SLIPGATE_DOWN, KEY_SLIPGATE_UP,
     KEY_NAV_UP, KEY_NAV_DOWN, KEY_NAV_LEFT, KEY_NAV_RIGHT,
     MAX_VISIBLE_MESSAGES,
@@ -32,6 +33,44 @@ from quakelike.combat import player_melee_attack, player_fire_weapon
 from quakelike.ai import update_enemy, get_enemies_in_los
 
 
+HELP_CONTENT = [
+    '=== QUAKELIKE HELP ===',
+    '',
+    'MOVEMENT',
+    '  h/j/k/l        Move left / down / up / right',
+    '  y/u/b/n        Move diagonally',
+    '',
+    'INVENTORY & ITEMS',
+    '  i              Open inventory & floor panel',
+    '  Tab            Transfer item between panels',
+    '  Enter          Use / equip selected item',
+    '  w              Swap to previous weapon',
+    '',
+    'COMBAT & TARGETING',
+    '  f              Fire equipped weapon at target',
+    '  t              Cycle to next target (LOS)',
+    '  T              Cycle to previous target (LOS)',
+    '  Alt-t          Clear current target',
+    '',
+    'NAVIGATION',
+    '  >              Descend slipgate',
+    '  <              Ascend slipgate',
+    '',
+    'OTHER',
+    '  x              Examine tile (move cursor with h/j/k/l)',
+    '  p              View message log',
+    '  ?              This help screen',
+    '  S              Save game',
+    '  Q              Quit game',
+    '',
+    'HOW TO WIN',
+    '  Find the Rune on level 40, then return to level 1.',
+    '  Step onto the Entrance (E) tile with the Rune to win.',
+    '',
+    'Press Escape or ? to close.',
+]
+
+
 class GameState(Enum):
     PLAYING = auto()
     INVENTORY = auto()
@@ -39,7 +78,8 @@ class GameState(Enum):
     MESSAGE_LOG = auto()
     GAME_OVER = auto()
     VICTORY = auto()
-    TARGETING = auto()
+    EXAMINE = auto()
+    HELP = auto()
 
 
 @dataclass
@@ -63,6 +103,8 @@ class Game:
     message_log_scroll: int = 0
     target_list: list[Enemy] = field(default_factory=list)
     target_cursor: int = -1
+    examine_cursor: tuple[int, int] = field(default_factory=lambda: (0, 0))
+    previous_state: Optional[GameState] = None
 
     @property
     def current_map(self) -> GameMap:
@@ -98,6 +140,9 @@ class Game:
     def handle_input(self, key: str) -> dict:
         """Handle a key input. Returns game state for rendering."""
         if self.state == GameState.GAME_OVER:
+            if key == KEY_HELP:
+                self.previous_state = GameState.GAME_OVER
+                self.state = GameState.HELP
             return self.get_render_state()
         if self.state == GameState.VICTORY:
             return self.get_render_state()
@@ -106,8 +151,10 @@ class Game:
             return self._handle_inventory_input(key)
         elif self.state == GameState.MESSAGE_LOG:
             return self._handle_message_log_input(key)
-        elif self.state == GameState.TARGETING:
-            return self._handle_targeting_input(key)
+        elif self.state == GameState.EXAMINE:
+            return self._handle_examine_input(key)
+        elif self.state == GameState.HELP:
+            return self._handle_help_input(key)
         else:
             return self._handle_playing_input(key)
 
@@ -121,10 +168,14 @@ class Game:
             self._use_slipgate_up()
         elif key == KEY_INVENTORY:
             self._open_inventory()
-        elif key == KEY_PICK_DROP:
-            self._quick_pick_drop()
+        elif key == KEY_EXAMINE:
+            self._enter_examine()
         elif key == KEY_TARGET:
-            self._start_targeting()
+            self._cycle_target_forward()
+        elif key == KEY_TARGET_PREV:
+            self._cycle_target_backward()
+        elif key == KEY_TARGET_CLEAR:
+            self._clear_target()
         elif key == KEY_FIRE:
             self._fire_weapon()
         elif key == KEY_SWAP_WEAPON:
@@ -132,6 +183,9 @@ class Game:
         elif key == KEY_MESSAGE_LOG:
             self.state = GameState.MESSAGE_LOG
             self.message_log_scroll = 0
+        elif key == KEY_HELP:
+            self.previous_state = GameState.PLAYING
+            self.state = GameState.HELP
         elif key == KEY_SAVE:
             self._save_game()
         elif key == KEY_QUIT:
@@ -258,31 +312,16 @@ class Game:
         self._end_turn()
 
     def _open_inventory(self) -> None:
-        """Open inventory panel."""
+        """Open inventory and loot panels simultaneously."""
         self.state = GameState.INVENTORY
         self.inventory_cursor = 0
+        self.loot_cursor = 0
         self.active_panel = 'inventory'
-
-    def _quick_pick_drop(self) -> None:
-        """Quick pick/drop - open loot+inventory if items on ground."""
-        items = self.current_map.get_items_at(
-            self.player.pos.y, self.player.pos.x)
-        if items:
-            self.state = GameState.LOOT
-            self.loot_cursor = 0
-            self.inventory_cursor = 0
-            self.active_panel = 'loot'
-        else:
-            # Open inventory for dropping
-            self.state = GameState.INVENTORY
-            self.inventory_cursor = 0
-            self.active_panel = 'inventory'
 
     def _handle_inventory_input(self, key: str) -> dict:
         """Handle input while in inventory/loot mode."""
         gmap = self.current_map
         ground_items = gmap.get_items_at(self.player.pos.y, self.player.pos.x)
-        has_loot = len(ground_items) > 0
 
         if key == KEY_INVENTORY or key == 'Escape':
             self.state = GameState.PLAYING
@@ -300,11 +339,10 @@ class Game:
                     self.player.inventory.count - 1,
                     self.inventory_cursor + 1)
         elif key == KEY_NAV_LEFT:
-            if has_loot:
-                self.active_panel = 'loot'
+            self.active_panel = 'loot'
         elif key == KEY_NAV_RIGHT:
             self.active_panel = 'inventory'
-        elif key == KEY_PICK_DROP:
+        elif key == KEY_TRANSFER:
             self._pick_drop_item(ground_items)
         elif key == KEY_USE or key == 'Enter':
             self._use_selected_item()
@@ -374,35 +412,109 @@ class Game:
 
         return self.get_render_state()
 
-    def _start_targeting(self) -> None:
-        """Start targeting mode."""
+    def _cycle_target_forward(self) -> None:
+        """Cycle to the next enemy in LOS (forward)."""
         self.target_list = get_enemies_in_los(self.player, self.current_map)
         if not self.target_list:
             self.message_log.add('No enemies in sight.')
+            self.player.target_index = -1
+            self.target_cursor = -1
             return
-        self.state = GameState.TARGETING
-        self.target_cursor = 0
-        enemy = self.target_list[0]
+        if self.target_cursor < 0 or self.target_cursor >= len(self.target_list):
+            self.target_cursor = 0
+        else:
+            self.target_cursor = (self.target_cursor + 1) % len(self.target_list)
+        self.player.target_index = self.target_cursor
+        enemy = self.target_list[self.target_cursor]
         self.message_log.add(
             f'Targeting: {enemy.name} (HP: {enemy.health}/{enemy.max_health})')
 
-    def _handle_targeting_input(self, key: str) -> dict:
-        """Handle input during targeting."""
-        if key == 'Escape':
-            self.state = GameState.PLAYING
+    def _cycle_target_backward(self) -> None:
+        """Cycle to the previous enemy in LOS (backward)."""
+        self.target_list = get_enemies_in_los(self.player, self.current_map)
+        if not self.target_list:
+            self.message_log.add('No enemies in sight.')
             self.player.target_index = -1
-        elif key == KEY_TARGET:
-            # Cycle through targets
-            if self.target_list:
-                self.target_cursor = (self.target_cursor + 1) % len(self.target_list)
-                enemy = self.target_list[self.target_cursor]
-                self.message_log.add(
-                    f'Targeting: {enemy.name} '
-                    f'(HP: {enemy.health}/{enemy.max_health})')
-                self.player.target_index = self.target_cursor
-        elif key == KEY_FIRE:
-            self._fire_at_target()
+            self.target_cursor = -1
+            return
+        if self.target_cursor < 0 or self.target_cursor >= len(self.target_list):
+            self.target_cursor = len(self.target_list) - 1
+        else:
+            self.target_cursor = (self.target_cursor - 1) % len(self.target_list)
+        self.player.target_index = self.target_cursor
+        enemy = self.target_list[self.target_cursor]
+        self.message_log.add(
+            f'Targeting: {enemy.name} (HP: {enemy.health}/{enemy.max_health})')
+
+    def _clear_target(self) -> None:
+        """Clear the current target."""
+        self.player.target_index = -1
+        self.target_cursor = -1
+        self.message_log.add('Target cleared.')
+
+    def _enter_examine(self) -> None:
+        """Enter examine mode with cursor at player position."""
+        self.examine_cursor = (self.player.pos.y, self.player.pos.x)
+        self.state = GameState.EXAMINE
+
+    def _handle_examine_input(self, key: str) -> dict:
+        """Handle input while in examine mode."""
+        if key == 'Escape' or key == KEY_EXAMINE:
             self.state = GameState.PLAYING
+        elif key in DIRECTIONS:
+            dy, dx = DIRECTIONS[key]
+            cy, cx = self.examine_cursor
+            ny = max(0, min(self.current_map.height - 1, cy + dy))
+            nx = max(0, min(self.current_map.width - 1, cx + dx))
+            self.examine_cursor = (ny, nx)
+
+        return self.get_render_state()
+
+    def _get_examine_info(self) -> str:
+        """Get a description of the tile at the examine cursor."""
+        cy, cx = self.examine_cursor
+        gmap = self.current_map
+
+        if (cy, cx) not in gmap.explored:
+            return 'Unexplored area.'
+
+        tile = gmap.get_tile(cy, cx)
+        tile_names = {
+            TILE_WALL: 'Wall',
+            TILE_FLOOR: 'Floor',
+            TILE_DOOR: 'Door',
+            TILE_WATER: 'Water',
+            TILE_LAVA: 'Lava',
+            TILE_SLIPGATE_DOWN: 'Slipgate (down)',
+            TILE_SLIPGATE_UP: 'Slipgate (up)',
+            TILE_ENTRANCE: 'Entrance',
+        }
+        tile_desc = tile_names.get(tile, 'Unknown')
+
+        parts = [tile_desc]
+
+        # Check for enemy
+        enemy = gmap.get_enemy_at(cy, cx)
+        if enemy is not None and enemy.is_alive:
+            parts.append(
+                f'{enemy.name} (HP: {enemy.health}/{enemy.max_health})')
+
+        # Check for items
+        items = gmap.get_items_at(cy, cx)
+        if items:
+            item_names = ', '.join(i.name for i in items)
+            parts.append(f'Items: {item_names}')
+
+        return ' | '.join(parts)
+
+    def _handle_help_input(self, key: str) -> dict:
+        """Handle input while viewing help."""
+        if key == 'Escape' or key == KEY_HELP:
+            if self.previous_state is not None:
+                self.state = self.previous_state
+            else:
+                self.state = GameState.PLAYING
+            self.previous_state = None
 
         return self.get_render_state()
 
@@ -480,6 +592,7 @@ class Game:
         if (self.player.target_index >= len(self.target_list) or
                 self.player.target_index < 0):
             self.player.target_index = -1
+            self.target_cursor = -1
 
     def _save_game(self) -> None:
         """Save game state to file."""
@@ -568,6 +681,7 @@ class Game:
             'invulnerability_turns': p.invulnerability_turns,
             'invisibility_turns': p.invisibility_turns,
             'biosuit_turns': p.biosuit_turns,
+            'megahealth_decay': p.megahealth_decay,
         }
 
     def _serialize_map(self, gmap: GameMap) -> dict:
@@ -665,6 +779,7 @@ class Game:
         self.player.invulnerability_turns = pdata['invulnerability_turns']
         self.player.invisibility_turns = pdata['invisibility_turns']
         self.player.biosuit_turns = pdata['biosuit_turns']
+        self.player.megahealth_decay = pdata.get('megahealth_decay', False)
 
         # Restore inventory
         self.player.inventory.items.clear()
@@ -739,6 +854,16 @@ class Game:
             'color': p.color,
         }
 
+        # Place examine cursor (overrides whatever is at that tile)
+        if self.state == GameState.EXAMINE:
+            cy, cx = self.examine_cursor
+            existing = visible_tiles[cy][cx]
+            visible_tiles[cy][cx] = {
+                'char': existing['char'],
+                'color': existing['color'],
+                'cursor': True,
+            }
+
         # Build status bar data
         weapon_name = p.equipped_weapon.name if p.equipped_weapon else 'None'
         ammo_info = {}
@@ -801,6 +926,16 @@ class Game:
         # Full message log (for log view)
         all_messages = self.message_log.get_all()
 
+        # Examine state
+        in_inventory_or_loot = self.state in (GameState.INVENTORY,
+                                               GameState.LOOT)
+        show_examine = self.state == GameState.EXAMINE
+        examine_info = self._get_examine_info() if show_examine else ''
+
+        # Help state
+        show_help = self.state == GameState.HELP
+        help_content = HELP_CONTENT if show_help else []
+
         return {
             'state': self.state.name,
             'map': visible_tiles,
@@ -812,11 +947,15 @@ class Game:
             'inventory': inventory_items,
             'loot': ground_items_data,
             'active_panel': self.active_panel,
-            'show_inventory': self.state in (GameState.INVENTORY,
-                                              GameState.LOOT),
-            'show_loot': self.state == GameState.LOOT,
+            'show_inventory': in_inventory_or_loot,
+            'show_loot': in_inventory_or_loot,
             'show_message_log': self.state == GameState.MESSAGE_LOG,
             'message_log_scroll': self.message_log_scroll,
+            'show_examine': show_examine,
+            'examine_cursor': list(self.examine_cursor),
+            'examine_info': examine_info,
+            'show_help': show_help,
+            'help_content': help_content,
             'quit': self.quit,
         }
 
