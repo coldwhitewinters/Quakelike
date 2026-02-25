@@ -15,5 +15,5 @@
     }
   },
   "forwardPorts": [5000],
-  "postCreateCommand": "uv sync --dev"
+  "postCreateCommand": "uv sync --frozen --dev"
 }
