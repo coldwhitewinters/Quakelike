@@ -44,14 +44,14 @@ docker-compose up --build
 
 Requirements:
 - Python 3.10 or higher
-- pip package manager
+- [uv](https://docs.astral.sh/uv/)
 
 ```bash
 # Install dependencies
-pip install -e .
+uv sync
 
 # Run the server
-python server.py
+uv run python server.py
 
 # Access the game at http://localhost:5000
 ```
@@ -202,13 +202,13 @@ Quakelike/
 
 ```bash
 # Run all tests
-pytest
+uv run pytest
 
 # Run with coverage report
-pytest --cov=quakelike --cov-report=html
+uv run pytest --cov=quakelike --cov-report=html
 
 # Run specific test module
-pytest tests/test_game.py
+uv run pytest tests/test_game.py
 ```
 
 ### Code Structure
@@ -267,6 +267,7 @@ NEW_ITEM = ItemDef(
 - **Socket.IO Client**: Real-time communication
 
 ### Development & Testing
+- **uv**: Package and project manager
 - **pytest 8.0+**: Testing framework
 - **pytest-cov 4.0+**: Code coverage
 - **Docker**: Containerization
