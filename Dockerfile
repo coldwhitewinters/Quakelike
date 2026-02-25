@@ -2,7 +2,7 @@
 FROM python:3.12-slim
 
 # Install uv (pinned for reproducible builds)
-COPY --from=ghcr.io/astral-sh/uv:0.6.14 /uv /uvx /bin/
+COPY --from=ghcr.io/astral-sh/uv:0.10.6 /uv /uvx /bin/
 
 # Create non-root user for security
 RUN useradd -m -u 1000 appuser
