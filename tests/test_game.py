@@ -218,7 +218,7 @@ class TestInventoryUI:
 
 
 class TestTargeting:
-    def test_start_targeting(self):
+    def test_t_selects_target_stays_in_playing(self):
         game = Game()
         game.new_game(seed=42)
         # Place enemy in LOS
@@ -230,7 +230,7 @@ class TestTargeting:
         enemy = Enemy.from_def(GRUNT, Position(10, 15))
         game.current_map.enemies.append(enemy)
 
-        # 't' now cycles targets from PLAYING state (no longer enters TARGETING)
+        # 't' cycles targets from PLAYING state without entering a separate state
         game.handle_input('t')
         assert game.state == GameState.PLAYING
         assert len(game.target_list) > 0

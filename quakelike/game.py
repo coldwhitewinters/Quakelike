@@ -78,7 +78,6 @@ class GameState(Enum):
     MESSAGE_LOG = auto()
     GAME_OVER = auto()
     VICTORY = auto()
-    TARGETING = auto()
     EXAMINE = auto()
     HELP = auto()
 
@@ -152,8 +151,6 @@ class Game:
             return self._handle_inventory_input(key)
         elif self.state == GameState.MESSAGE_LOG:
             return self._handle_message_log_input(key)
-        elif self.state == GameState.TARGETING:
-            return self._handle_targeting_input(key)
         elif self.state == GameState.EXAMINE:
             return self._handle_examine_input(key)
         elif self.state == GameState.HELP:
@@ -455,38 +452,6 @@ class Game:
         self.target_cursor = -1
         self.message_log.add('Target cleared.')
 
-    def _start_targeting(self) -> None:
-        """Start targeting mode (kept for TARGETING state compatibility)."""
-        self.target_list = get_enemies_in_los(self.player, self.current_map)
-        if not self.target_list:
-            self.message_log.add('No enemies in sight.')
-            return
-        self.state = GameState.TARGETING
-        self.target_cursor = 0
-        enemy = self.target_list[0]
-        self.message_log.add(
-            f'Targeting: {enemy.name} (HP: {enemy.health}/{enemy.max_health})')
-
-    def _handle_targeting_input(self, key: str) -> dict:
-        """Handle input during targeting."""
-        if key == 'Escape':
-            self.state = GameState.PLAYING
-            self.player.target_index = -1
-        elif key == KEY_TARGET:
-            # Cycle through targets
-            if self.target_list:
-                self.target_cursor = (self.target_cursor + 1) % len(self.target_list)
-                enemy = self.target_list[self.target_cursor]
-                self.message_log.add(
-                    f'Targeting: {enemy.name} '
-                    f'(HP: {enemy.health}/{enemy.max_health})')
-                self.player.target_index = self.target_cursor
-        elif key == KEY_FIRE:
-            self._fire_at_target()
-            self.state = GameState.PLAYING
-
-        return self.get_render_state()
-
     def _enter_examine(self) -> None:
         """Enter examine mode with cursor at player position."""
         self.examine_cursor = (self.player.pos.y, self.player.pos.x)
@@ -627,6 +592,7 @@ class Game:
         if (self.player.target_index >= len(self.target_list) or
                 self.player.target_index < 0):
             self.player.target_index = -1
+            self.target_cursor = -1
 
     def _save_game(self) -> None:
         """Save game state to file."""
