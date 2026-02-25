@@ -397,7 +397,7 @@ class TestRenderState:
     def test_render_state_has_all_fields(self):
         game = Game()
         game.new_game(seed=42)
-        state = game._get_render_state()
+        state = game.get_render_state()
 
         assert 'state' in state
         assert 'map' in state
@@ -411,7 +411,7 @@ class TestRenderState:
     def test_status_has_all_fields(self):
         game = Game()
         game.new_game(seed=42)
-        state = game._get_render_state()
+        state = game.get_render_state()
         status = state['status']
 
         assert 'health' in status
@@ -427,7 +427,7 @@ class TestRenderState:
     def test_map_dimensions_correct(self):
         game = Game()
         game.new_game(seed=42)
-        state = game._get_render_state()
+        state = game.get_render_state()
         assert len(state['map']) == state['map_height']
         assert len(state['map'][0]) == state['map_width']
 
@@ -507,11 +507,11 @@ class TestQuitVsDeath:
     def test_render_state_includes_quit_flag(self):
         game = Game()
         game.new_game(seed=42)
-        state = game._get_render_state()
+        state = game.get_render_state()
         assert 'quit' in state
         assert state['quit'] is False
         game.handle_input('Q')
-        state = game._get_render_state()
+        state = game.get_render_state()
         assert state['quit'] is True
 
 

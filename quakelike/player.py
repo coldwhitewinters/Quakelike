@@ -102,13 +102,20 @@ class Player(Entity):
         return self.inventory.get_ammo_count(weapon_def.ammo_type) >= weapon_def.ammo_per_shot
 
     def apply_armor(self, item: Item) -> bool:
-        """Apply armor from an item. Only replaces if new armor is better."""
+        """Apply armor from an item. Replaces if new armor provides more total absorption.
+
+        Total absorption is armor_points * armor_absorption, representing the
+        maximum total damage the armor can absorb before being depleted.
+        New armor is accepted if its total absorption exceeds the current
+        remaining absorption.
+        """
         if item.item_type != ItemType.ARMOR:
             return False
         new_points = item.item_def.armor_points
         new_absorption = item.item_def.armor_absorption
-        # Only replace if new armor provides better effective protection
-        if new_points * new_absorption <= self.armor * self.armor_absorption:
+        new_effective = new_points * new_absorption
+        current_effective = self.armor * self.armor_absorption
+        if new_effective <= current_effective:
             return False
         self.armor = new_points
         self.armor_absorption = new_absorption

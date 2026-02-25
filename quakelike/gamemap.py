@@ -372,10 +372,20 @@ def _add_pool(gmap: GameMap, room: Room, tile: str,
     radius = min(room.width, room.height) // 4
     if radius < 1:
         radius = 1
+
+    # Collect positions that must not be overwritten
+    protected = set()
+    for pos in (gmap.slipgate_down_pos, gmap.slipgate_up_pos,
+                gmap.entrance_pos):
+        if pos is not None:
+            protected.add((pos.y, pos.x))
+
     for dy in range(-radius, radius + 1):
         for dx in range(-radius, radius + 1):
             if abs(dy) + abs(dx) <= radius:
                 ny, nx = center.y + dy, center.x + dx
+                if (ny, nx) in protected:
+                    continue
                 # Only replace floor tiles, and not the exact center
                 if (gmap.get_tile(ny, nx) == TILE_FLOOR and
                         (ny != center.y or nx != center.x)):
