@@ -1,22 +1,26 @@
 # Using Python 3.12 (compatible with project's >=3.10 requirement)
 FROM python:3.12-slim
 
+# Install uv
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
+
 # Create non-root user for security
 RUN useradd -m -u 1000 appuser
 
 WORKDIR /app
+RUN chown appuser:appuser /app
 
-# Copy dependency specification and install production dependencies only
-COPY --chown=appuser:appuser pyproject.toml .
-RUN pip install --no-cache-dir .
+# Copy dependency specification and sync production dependencies
+COPY --chown=appuser:appuser pyproject.toml uv.lock ./
+USER appuser
+RUN uv sync --frozen --no-dev
 
 # Copy application code
 COPY --chown=appuser:appuser . .
 
-# Switch to non-root user
-USER appuser
-
 EXPOSE 5000
+
+ENV PATH="/app/.venv/bin:$PATH"
 
 # Add health check
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \

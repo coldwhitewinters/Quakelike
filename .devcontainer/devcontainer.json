@@ -10,10 +10,10 @@
         "ms-python.debugpy"
       ],
       "settings": {
-        "python.defaultInterpreterPath": "/usr/local/bin/python"
+        "python.defaultInterpreterPath": "/app/.venv/bin/python"
       }
     }
   },
   "forwardPorts": [5000],
-  "postCreateCommand": "pip install -e '.[dev]'"
+  "postCreateCommand": "uv sync --dev"
 }
