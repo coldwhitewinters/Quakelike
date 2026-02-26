@@ -55,6 +55,7 @@ Browser ↔ Flask-SocketIO (WebSocket) ↔ `Game` object (per session)
 - `PLAYING` → normal movement/combat
 - `INVENTORY` / `LOOT` → item management panels
 - `TARGETING` → ranged target selection
+- `FAST_TRAVEL` → cursor-based teleport destination selection
 - `MESSAGE_LOG` → scrollable log view
 - `GAME_OVER` / `VICTORY` → terminal states
 
