@@ -426,6 +426,95 @@ class TestPowerupScarcity:
             )
 
 
+class TestDoorPlacement:
+    """Doors must only appear at corridor-room junctions, not mid-corridor."""
+
+    def _is_h_corridor(self, gmap: GameMap, y: int, x: int) -> bool:
+        """True if tile has walls above and below (horizontal corridor position)."""
+        return (gmap.get_tile(y - 1, x) == TILE_WALL and
+                gmap.get_tile(y + 1, x) == TILE_WALL)
+
+    def _is_v_corridor(self, gmap: GameMap, y: int, x: int) -> bool:
+        """True if tile has walls left and right (vertical corridor position)."""
+        return (gmap.get_tile(y, x - 1) == TILE_WALL and
+                gmap.get_tile(y, x + 1) == TILE_WALL)
+
+    def test_no_mid_corridor_doors(self):
+        """Doors must not appear in the middle of a corridor (no room opening nearby).
+
+        A door is supposed to mark the entrance of a corridor into a room.
+        A mid-corridor tile has the same corridor shape on BOTH perpendicular
+        neighbours — it does not open into a room on either side.
+        """
+        for seed in range(20):
+            rng = random.Random(seed)
+            gmap = generate_map(5, rng)
+            for y in range(1, gmap.height - 1):
+                for x in range(1, gmap.width - 1):
+                    if gmap.get_tile(y, x) != TILE_DOOR:
+                        continue
+                    if self._is_h_corridor(gmap, y, x):
+                        left_opens = (gmap.get_tile(y, x - 1) == TILE_FLOOR and
+                                      not self._is_h_corridor(gmap, y, x - 1))
+                        right_opens = (gmap.get_tile(y, x + 1) == TILE_FLOOR and
+                                       not self._is_h_corridor(gmap, y, x + 1))
+                        assert left_opens or right_opens, (
+                            f"Seed {seed}: door at ({y},{x}) is mid-corridor "
+                            f"(h-corridor, neither left nor right opens into a room)"
+                        )
+                    if self._is_v_corridor(gmap, y, x):
+                        up_opens = (gmap.get_tile(y - 1, x) == TILE_FLOOR and
+                                    not self._is_v_corridor(gmap, y - 1, x))
+                        down_opens = (gmap.get_tile(y + 1, x) == TILE_FLOOR and
+                                      not self._is_v_corridor(gmap, y + 1, x))
+                        assert up_opens or down_opens, (
+                            f"Seed {seed}: door at ({y},{x}) is mid-corridor "
+                            f"(v-corridor, neither up nor down opens into a room)"
+                        )
+
+    def test_door_is_at_junction_not_mid_corridor(self):
+        """Every door must be adjacent to open room space in the perpendicular direction.
+
+        For a door with walls above/below (h-corridor), at least one of its
+        left/right neighbours must be a floor tile that is NOT itself a narrow
+        h-corridor tile (i.e., it opens into wider space — a room).
+        Likewise for v-corridor doors.
+        """
+        for seed in range(20):
+            rng = random.Random(seed)
+            gmap = generate_map(5, rng)
+            for y in range(1, gmap.height - 1):
+                for x in range(1, gmap.width - 1):
+                    if gmap.get_tile(y, x) != TILE_DOOR:
+                        continue
+                    h_corr = self._is_h_corridor(gmap, y, x)
+                    v_corr = self._is_v_corridor(gmap, y, x)
+                    if h_corr:
+                        # At least one perpendicular neighbor must open into
+                        # non-corridor space (a room floor).
+                        left = gmap.get_tile(y, x - 1)
+                        right = gmap.get_tile(y, x + 1)
+                        left_opens = (left == TILE_FLOOR and
+                                      not self._is_h_corridor(gmap, y, x - 1))
+                        right_opens = (right == TILE_FLOOR and
+                                       not self._is_h_corridor(gmap, y, x + 1))
+                        assert left_opens or right_opens, (
+                            f"Seed {seed}: door at ({y},{x}) is mid-corridor "
+                            f"(h-corridor, no adjacent room opening)"
+                        )
+                    if v_corr:
+                        up = gmap.get_tile(y - 1, x)
+                        down = gmap.get_tile(y + 1, x)
+                        up_opens = (up == TILE_FLOOR and
+                                    not self._is_v_corridor(gmap, y - 1, x))
+                        down_opens = (down == TILE_FLOOR and
+                                      not self._is_v_corridor(gmap, y + 1, x))
+                        assert up_opens or down_opens, (
+                            f"Seed {seed}: door at ({y},{x}) is mid-corridor "
+                            f"(v-corridor, no adjacent room opening)"
+                        )
+
+
 class TestUnlimitedViewDistance:
     """Tests for the unlimited-range reveal_around()."""
 

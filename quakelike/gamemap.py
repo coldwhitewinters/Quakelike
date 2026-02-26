@@ -347,7 +347,27 @@ def _add_doors(gmap: GameMap, rng: random.Random) -> None:
                        gmap.tiles[y + 1][x] == TILE_WALL)
             v_walls = (gmap.tiles[y][x - 1] == TILE_WALL and
                        gmap.tiles[y][x + 1] == TILE_WALL)
-            if (h_walls or v_walls) and rng.random() < 0.3:
+            if not (h_walls or v_walls):
+                continue
+            # Only place at junctions: at least one perpendicular neighbour
+            # must open into non-corridor space (i.e., a room floor that does
+            # not itself have walls on the same two opposite sides).
+            is_junction = False
+            if h_walls:
+                for nx in (x - 1, x + 1):
+                    if (gmap.tiles[y][nx] == TILE_FLOOR and
+                            not (gmap.tiles[y - 1][nx] == TILE_WALL and
+                                 gmap.tiles[y + 1][nx] == TILE_WALL)):
+                        is_junction = True
+                        break
+            if v_walls and not is_junction:
+                for ny in (y - 1, y + 1):
+                    if (gmap.tiles[ny][x] == TILE_FLOOR and
+                            not (gmap.tiles[ny][x - 1] == TILE_WALL and
+                                 gmap.tiles[ny][x + 1] == TILE_WALL)):
+                        is_junction = True
+                        break
+            if is_junction and rng.random() < 0.3:
                 gmap.tiles[y][x] = TILE_DOOR
 
 
