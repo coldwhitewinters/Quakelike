@@ -146,32 +146,40 @@ class TestFastTravelCancellation:
         assert game.state == GameState.PLAYING
         assert (game.player.pos.y, game.player.pos.x) == original_pos
 
-    def test_underscore_cancels_fast_travel_on_second_press(self):
-        """Pressing '_' again while in FAST_TRAVEL returns to PLAYING without
-        teleporting.  The cursor is moved away from the player tile before the
-        second press so the test cannot accidentally pass due to a valid
-        teleport to the same position."""
+    def test_underscore_confirms_on_invalid_tile_stays_in_fast_travel(self):
+        """Pressing '_' while the cursor is on an invalid tile (explored wall)
+        keeps the game in FAST_TRAVEL state and does not move the player.
+
+        '_' is always a confirm action; Escape is the cancel path.  When the
+        destination is invalid the teleport is rejected and FAST_TRAVEL mode
+        is preserved so the player can reposition the cursor.
+        """
         game = _make_game()
         original_pos = (game.player.pos.y, game.player.pos.x)
+
+        # Place an explored wall three steps up — outside the carved floor area
+        wall_y, wall_x = 7, 10
+        game.current_map.set_tile(wall_y, wall_x, TILE_WALL)
+        game.current_map.explored.add((wall_y, wall_x))
 
         game.handle_input('_')
         # Must have entered FAST_TRAVEL
         assert game.state == GameState.FAST_TRAVEL
 
-        # Move the cursor away from the player so a confirmation teleport
-        # would send the player to a *different* tile.
-        game.handle_input('l')  # cursor right -> (10, 11)
-        assert game.fast_travel_cursor != original_pos[::-1], (
-            "Cursor should have moved away from player tile"
-        )
+        # Move cursor three steps up onto the wall tile
+        game.handle_input('k')
+        game.handle_input('k')
+        game.handle_input('k')
+        assert game.fast_travel_cursor == (wall_y, wall_x)
 
-        # Second press of '_' must cancel (not teleport)
+        # Attempting to confirm on the wall must be rejected
         initial_turn = game.turn
         game.handle_input('_')
-        assert game.state == GameState.PLAYING
+        # State must remain FAST_TRAVEL (not PLAYING)
+        assert game.state == GameState.FAST_TRAVEL
         # Player must not have moved
         assert (game.player.pos.y, game.player.pos.x) == original_pos
-        # Turn must not have advanced (cancel does not cost a turn)
+        # Turn must not have advanced (failed teleport does not cost a turn)
         assert game.turn == initial_turn
 
 
@@ -204,9 +212,11 @@ class TestFastTravelTeleport:
 
         Per spec: there is no restriction against the cursor being on the
         player's own tile; confirming there should succeed and return to PLAYING.
+        The turn counter must advance to confirm _end_turn() was called.
         """
         game = _make_game()
         py, px = game.player.pos.y, game.player.pos.x
+        initial_turn = game.turn
 
         game.handle_input('_')
         assert game.state == GameState.FAST_TRAVEL
@@ -217,6 +227,8 @@ class TestFastTravelTeleport:
         assert game.state == GameState.PLAYING
         assert game.player.pos.y == py
         assert game.player.pos.x == px
+        # _end_turn() must have been called
+        assert game.turn == initial_turn + 1
 
     def test_fast_travel_ends_turn(self):
         """A successful fast travel teleport increments game.turn.
@@ -266,6 +278,33 @@ class TestFastTravelTeleport:
         assert game.player.pos.y == lava_y
         assert game.player.pos.x == lava_x
         assert game.player.health < initial_hp
+
+    def test_fast_travel_to_lava_fatal_damage_causes_game_over(self):
+        """Teleporting to lava when health is too low (5 HP) kills the player.
+
+        Lava deals 10 damage on entry; with only 5 HP the player dies and the
+        game must transition to GAME_OVER.
+        """
+        game = Game()
+        game.new_game(seed=42)
+        game.current_map.enemies.clear()
+        game.player.pos = Position(10, 10)
+        game.current_map.set_tile(10, 10, TILE_FLOOR)
+        game.current_map.reveal_around(10, 10)
+
+        lava_y, lava_x = 10, 13
+        game.current_map.set_tile(lava_y, lava_x, TILE_LAVA)
+        game.current_map.explored.add((lava_y, lava_x))
+        game.player.biosuit_turns = 0
+        game.player.health = 5  # Will die from 10 lava damage
+
+        game.handle_input('_')   # Enter fast travel mode
+        game.handle_input('l')   # Move cursor right -> (10, 11)
+        game.handle_input('l')   # Move cursor right -> (10, 12)
+        game.handle_input('l')   # Move cursor right -> (10, 13)
+        game.handle_input('_')   # Confirm teleport to lava
+
+        assert game.state == GameState.GAME_OVER
 
 
 # ---------------------------------------------------------------------------

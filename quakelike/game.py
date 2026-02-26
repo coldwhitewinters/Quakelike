@@ -487,21 +487,14 @@ class Game:
         if key == 'Escape':
             self.state = GameState.PLAYING
         elif key == KEY_FAST_TRAVEL:
-            cy, cx = self.fast_travel_cursor
-            py, px = self.player.pos.y, self.player.pos.x
-            # Cancel if cursor is in the player's row and at most one column
-            # away (adjacent horizontally or same tile); otherwise confirm.
-            if cy == py and abs(cx - px) <= 1:
-                self.state = GameState.PLAYING
-            else:
-                self._confirm_fast_travel()
+            self._confirm_fast_travel()
         elif key in DIRECTIONS:
             dy, dx = DIRECTIONS[key]
             cy, cx = self.fast_travel_cursor
             ny = max(0, min(self.current_map.height - 1, cy + dy))
             nx = max(0, min(self.current_map.width - 1, cx + dx))
             self.fast_travel_cursor = (ny, nx)
-        elif key in ('Return', KEY_USE):
+        elif key == KEY_USE:
             self._confirm_fast_travel()
         return self.get_render_state()
 
