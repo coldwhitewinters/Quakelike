@@ -16,7 +16,7 @@ from quakelike.constants import (
     KEY_TARGET, KEY_TARGET_PREV, KEY_TARGET_CLEAR, KEY_FIRE,
     KEY_SWAP_WEAPON, KEY_MESSAGE_LOG, KEY_HELP, KEY_SAVE, KEY_QUIT,
     KEY_SLIPGATE_DOWN, KEY_SLIPGATE_UP,
-    KEY_NAV_UP, KEY_NAV_DOWN, KEY_NAV_LEFT, KEY_NAV_RIGHT,
+    KEY_NAV_UP, KEY_NAV_DOWN, KEY_NAV_LEFT, KEY_NAV_RIGHT, KEY_FAST_TRAVEL,
     MAX_VISIBLE_MESSAGES,
     COLOR_WALL, COLOR_FLOOR, COLOR_DOOR, COLOR_SLIPGATE,
     COLOR_ENTRANCE, COLOR_WATER, COLOR_LAVA,
@@ -58,6 +58,7 @@ HELP_CONTENT = [
     '',
     'OTHER',
     '  x              Examine tile (move cursor with h/j/k/l)',
+    '  _              Fast travel (move cursor, _ to confirm)',
     '  p              View message log',
     '  ?              This help screen',
     '  S              Save game',
@@ -80,6 +81,7 @@ class GameState(Enum):
     VICTORY = auto()
     EXAMINE = auto()
     HELP = auto()
+    FAST_TRAVEL = auto()
 
 
 @dataclass
@@ -104,6 +106,7 @@ class Game:
     target_list: list[Enemy] = field(default_factory=list)
     target_cursor: int = -1
     examine_cursor: tuple[int, int] = field(default_factory=lambda: (0, 0))
+    fast_travel_cursor: tuple[int, int] = field(default_factory=lambda: (0, 0))
     previous_state: Optional[GameState] = None
 
     @property
@@ -153,6 +156,8 @@ class Game:
             return self._handle_message_log_input(key)
         elif self.state == GameState.EXAMINE:
             return self._handle_examine_input(key)
+        elif self.state == GameState.FAST_TRAVEL:
+            return self._handle_fast_travel_input(key)
         elif self.state == GameState.HELP:
             return self._handle_help_input(key)
         else:
@@ -170,6 +175,8 @@ class Game:
             self._open_inventory()
         elif key == KEY_EXAMINE:
             self._enter_examine()
+        elif key == KEY_FAST_TRAVEL:
+            self._enter_fast_travel()
         elif key == KEY_TARGET:
             self._cycle_target_forward()
         elif key == KEY_TARGET_PREV:
@@ -469,6 +476,73 @@ class Game:
             self.examine_cursor = (ny, nx)
 
         return self.get_render_state()
+
+    def _enter_fast_travel(self) -> None:
+        """Enter fast travel cursor mode."""
+        self.fast_travel_cursor = (self.player.pos.y, self.player.pos.x)
+        self.state = GameState.FAST_TRAVEL
+
+    def _handle_fast_travel_input(self, key: str) -> dict:
+        """Handle input while in fast travel cursor mode."""
+        if key == 'Escape':
+            self.state = GameState.PLAYING
+        elif key == KEY_FAST_TRAVEL:
+            cy, cx = self.fast_travel_cursor
+            py, px = self.player.pos.y, self.player.pos.x
+            # Cancel if cursor is in the player's row and at most one column
+            # away (adjacent horizontally or same tile); otherwise confirm.
+            if cy == py and abs(cx - px) <= 1:
+                self.state = GameState.PLAYING
+            else:
+                self._confirm_fast_travel()
+        elif key in DIRECTIONS:
+            dy, dx = DIRECTIONS[key]
+            cy, cx = self.fast_travel_cursor
+            ny = max(0, min(self.current_map.height - 1, cy + dy))
+            nx = max(0, min(self.current_map.width - 1, cx + dx))
+            self.fast_travel_cursor = (ny, nx)
+        elif key in ('Return', KEY_USE):
+            self._confirm_fast_travel()
+        return self.get_render_state()
+
+    def _confirm_fast_travel(self) -> None:
+        """Teleport player to the fast travel cursor position."""
+        cy, cx = self.fast_travel_cursor
+        gmap = self.current_map
+
+        if (cy, cx) not in gmap.explored:
+            self.message_log.add('You cannot travel to unexplored areas.')
+            return
+        if not gmap.is_walkable(cy, cx):
+            self.message_log.add('You cannot travel there.')
+            return
+        enemy = gmap.get_enemy_at(cy, cx)
+        if enemy is not None and enemy.is_alive:
+            self.message_log.add('An enemy blocks the way.')
+            return
+
+        # Teleport
+        self.player.pos.y = cy
+        self.player.pos.x = cx
+        self.state = GameState.PLAYING
+
+        # Environmental damage
+        tile = gmap.get_tile(cy, cx)
+        if tile == TILE_LAVA and self.player.biosuit_turns <= 0:
+            dmg = self.player.take_damage(10)
+            self.message_log.add(f'The lava burns you for {dmg} damage!')
+
+        # Reveal FOV
+        gmap.reveal_around(cy, cx)
+
+        # Victory check
+        if (tile == TILE_ENTRANCE and self.player.has_rune() and
+                self.current_map_idx == 0):
+            self.state = GameState.VICTORY
+            self.message_log.add('You return with the Rune! VICTORY!')
+            return
+
+        self._end_turn()
 
     def _get_examine_info(self) -> str:
         """Get a description of the tile at the examine cursor."""
@@ -864,6 +938,16 @@ class Game:
                 'cursor': True,
             }
 
+        # Place fast travel cursor
+        if self.state == GameState.FAST_TRAVEL:
+            cy, cx = self.fast_travel_cursor
+            existing = visible_tiles[cy][cx]
+            visible_tiles[cy][cx] = {
+                'char': existing['char'],
+                'color': existing['color'],
+                'cursor': True,
+            }
+
         # Build status bar data
         weapon_name = p.equipped_weapon.name if p.equipped_weapon else 'None'
         ammo_info = {}
@@ -954,6 +1038,8 @@ class Game:
             'show_examine': show_examine,
             'examine_cursor': list(self.examine_cursor),
             'examine_info': examine_info,
+            'show_fast_travel': self.state == GameState.FAST_TRAVEL,
+            'fast_travel_cursor': list(self.fast_travel_cursor),
             'show_help': show_help,
             'help_content': help_content,
             'quit': self.quit,
