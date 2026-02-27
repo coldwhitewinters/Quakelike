@@ -101,6 +101,7 @@ class Game:
 
     # Autopath travel state
     travel_path: list = field(default_factory=list)
+    _travel_frames: list = field(default_factory=list)
 
     # UI state
     inventory_cursor: int = 0
@@ -129,6 +130,7 @@ class Game:
         self.state = GameState.PLAYING
         self.quit = False
         self.travel_path = []
+        self._travel_frames = []
 
         # Generate first map
         first_map = generate_map(0, self.rng)
@@ -171,8 +173,6 @@ class Game:
     def _handle_playing_input(self, key: str) -> dict:
         """Handle input during normal play."""
         if key in DIRECTIONS:
-            # Cancel any in-progress autopath travel before processing move
-            self.travel_path = []
             self._move_player(key)
         elif key == KEY_SLIPGATE_DOWN:
             self._use_slipgate_down()
@@ -183,10 +183,7 @@ class Game:
         elif key == KEY_EXAMINE:
             self._enter_examine()
         elif key == KEY_FAST_TRAVEL:
-            if self.travel_path:
-                self._continue_travel()
-            else:
-                self._enter_fast_travel()
+            self._enter_fast_travel()
         elif key == KEY_TARGET:
             self._cycle_target_forward()
         elif key == KEY_TARGET_PREV:
@@ -554,55 +551,8 @@ class Game:
         path.reverse()
         return path
 
-    def _execute_travel_step(self, step: tuple) -> None:
-        """Move player to step, apply environmental effects, reveal FOV, end turn."""
-        ny, nx = step
-        gmap = self.current_map
-        self.player.pos.y = ny
-        self.player.pos.x = nx
-
-        # Environmental damage
-        tile = gmap.get_tile(ny, nx)
-        if tile == TILE_LAVA and self.player.biosuit_turns <= 0:
-            dmg = self.player.take_damage(10)
-            self.message_log.add(f'The lava burns you for {dmg} damage!')
-
-        # Reveal FOV
-        gmap.reveal_around(ny, nx)
-
-        # Victory check
-        if (tile == TILE_ENTRANCE and self.player.has_rune() and
-                self.current_map_idx == 0):
-            self.state = GameState.VICTORY
-            self.message_log.add('You return with the Rune! VICTORY!')
-            self.travel_path = []
-            return
-
-        self._end_turn()
-
-        # If player died during _end_turn, cancel travel
-        if self.state == GameState.GAME_OVER:
-            self.travel_path = []
-
-    def _continue_travel(self) -> None:
-        """Advance one step along the stored travel path."""
-        if not self.travel_path:
-            return
-
-        step = self.travel_path.pop(0)
-        gmap = self.current_map
-
-        # Check if a living enemy now occupies the next tile
-        enemy = gmap.get_enemy_at(step[0], step[1])
-        if enemy is not None and enemy.is_alive:
-            self.travel_path = []
-            self.message_log.add('An enemy blocks the path.')
-            return
-
-        self._execute_travel_step(step)
-
     def _confirm_fast_travel(self) -> None:
-        """Begin step-by-step travel to the fast travel cursor position."""
+        """Execute all travel steps to the fast travel cursor position in one call."""
         cy, cx = self.fast_travel_cursor
         gmap = self.current_map
 
@@ -624,6 +574,7 @@ class Game:
             # Zero steps: just end turn
             self.state = GameState.PLAYING
             self.travel_path = []
+            self._travel_frames = []
             self._end_turn()
             return
 
@@ -632,10 +583,44 @@ class Game:
             self.message_log.add('No path to destination.')
             return  # stay in FAST_TRAVEL
 
-        # Take the first step; store remaining
-        self.travel_path = path[1:]
+        # Execute ALL steps, collecting intermediate positions
+        self.travel_path = path
         self.state = GameState.PLAYING
-        self._execute_travel_step(path[0])
+        frames = []
+        while self.travel_path:
+            step = self.travel_path.pop(0)
+            ey, ex = step
+            enemy = gmap.get_enemy_at(ey, ex)
+            if enemy is not None and enemy.is_alive:
+                self.message_log.add('An enemy blocks the path.')
+                break
+            # Move player
+            self.player.pos.y = ey
+            self.player.pos.x = ex
+            frames.append([ey, ex])
+            # Environmental effects
+            tile = gmap.get_tile(ey, ex)
+            if tile == TILE_LAVA and self.player.biosuit_turns <= 0:
+                dmg = self.player.take_damage(10)
+                self.message_log.add(f'The lava burns you for {dmg} damage!')
+            # Reveal FOV
+            gmap.reveal_around(ey, ex)
+            # Victory check
+            if (tile == TILE_ENTRANCE and self.player.has_rune() and
+                    self.current_map_idx == 0):
+                self.state = GameState.VICTORY
+                self.message_log.add('You return with the Rune! VICTORY!')
+                self.travel_path = []
+                self._travel_frames = frames
+                return
+            # End turn for this step
+            self._end_turn()
+            if self.state == GameState.GAME_OVER:
+                self.travel_path = []
+                self._travel_frames = frames
+                return
+        self.travel_path = []
+        self._travel_frames = frames
 
     def _get_examine_info(self) -> str:
         """Get a description of the tile at the examine cursor."""
@@ -1133,7 +1118,9 @@ class Game:
             'examine_info': examine_info,
             'show_fast_travel': self.state == GameState.FAST_TRAVEL,
             'fast_travel_cursor': list(self.fast_travel_cursor),
-            'traveling': bool(self.travel_path),
+            'traveling': False,
+            'player_pos': [self.player.pos.y, self.player.pos.x],
+            'travel_frames': list(self._travel_frames),
             'show_help': show_help,
             'help_content': help_content,
             'quit': self.quit,
