@@ -97,7 +97,7 @@ document.addEventListener('keydown', (e) => {
     const gameKeys = [
         'h', 'j', 'k', 'l', 'y', 'u', 'b', 'n', '_',
         'i', 'x', 't', 'T', 'f', 'w', 'p', 'S', 'Q',
-        '?', '>', '<', 'Enter', 'Escape', 'Tab',
+        '?', '>', '<', '.', ',', 'Enter', 'Escape', 'Tab',
         'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'
     ];
 
