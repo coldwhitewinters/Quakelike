@@ -100,7 +100,7 @@ class GameMap:
     def is_transparent(self, y: int, x: int) -> bool:
         """Check if a tile allows line of sight."""
         tile = self.get_tile(y, x)
-        return tile != TILE_WALL
+        return tile != TILE_WALL and tile != TILE_DOOR
 
     def get_items_at(self, y: int, x: int) -> list[Item]:
         """Get items on the ground at position."""
@@ -164,7 +164,7 @@ class GameMap:
         """Simple line of sight check using Bresenham's line."""
         points = bresenham_line(y1, x1, y2, x2)
         for py, px in points[1:-1]:  # Skip start and end
-            if self.get_tile(py, px) == TILE_WALL:
+            if not self.is_transparent(py, px):
                 return False
         return True
 
