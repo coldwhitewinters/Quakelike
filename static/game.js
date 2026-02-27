@@ -19,9 +19,11 @@ function initSocket() {
 
     socket.on('game_state', (state) => {
         gameState = state;
-        render(state);
-        if (state.traveling) {
-            setTimeout(() => sendInput('_'), 30);
+        const frames = state.travel_frames;
+        if (frames && frames.length > 1) {
+            animateTravelFrames(state, frames);
+        } else {
+            render(state);
         }
     });
 
@@ -112,6 +114,50 @@ document.addEventListener('keydown', (e) => {
 // ============================================================
 // RENDERING
 // ============================================================
+
+function animateTravelFrames(finalState, frames) {
+    // Find the player tile from the final destination position
+    const destY = finalState.player_pos[0];
+    const destX = finalState.player_pos[1];
+    const playerTile = finalState.map[destY][destX];  // the '@' tile
+
+    // Make a mutable deep copy of the map for animation
+    const animMap = finalState.map.map(row => row.map(cell => Object.assign({}, cell)));
+
+    let frameIndex = 0;
+
+    function nextFrame() {
+        if (frameIndex >= frames.length - 1) {
+            // Last frame: render the real final state
+            render(finalState);
+            return;
+        }
+
+        const [y, x] = frames[frameIndex];
+
+        // Restore previous frame position to its underlying tile from the final state
+        if (frameIndex > 0) {
+            const [prevY, prevX] = frames[frameIndex - 1];
+            animMap[prevY][prevX] = Object.assign({}, finalState.map[prevY][prevX]);
+        } else {
+            // First frame: restore destination to its underlying tile
+            // Use player_tile from backend if available, otherwise fall back to a floor tile
+            if (finalState.player_tile) {
+                animMap[destY][destX] = Object.assign({}, finalState.player_tile);
+            }
+        }
+
+        // Place player at current frame position
+        animMap[y][x] = Object.assign({}, playerTile);
+
+        renderMap(Object.assign({}, finalState, { map: animMap }));
+
+        frameIndex++;
+        setTimeout(nextFrame, 30);
+    }
+
+    nextFrame();
+}
 
 function render(state) {
     renderMap(state);
