@@ -616,6 +616,9 @@ class Game:
             if self.state == GameState.GAME_OVER:
                 self._travel_frames = frames
                 return
+            if self.target_list:
+                self.message_log.add('An enemy is nearby!')
+                break
         self._travel_frames = frames
 
     def _get_examine_info(self) -> str:

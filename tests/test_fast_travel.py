@@ -746,3 +746,204 @@ class TestFastTravelAutopath:
         # Any subsequent action must clear travel_frames
         game.handle_input('h')  # move left
         assert game.get_render_state()['travel_frames'] == []
+
+
+# ---------------------------------------------------------------------------
+# 8. LOS-based travel interruption
+#
+# These tests specify that fast travel must be interrupted when an enemy
+# enters the player's line of sight mid-journey (i.e., after _end_turn()
+# populates target_list with a visible enemy).
+#
+# All three tests currently FAIL because _confirm_fast_travel() never checks
+# target_list between steps. They will PASS once the following fix is added
+# immediately after the GAME_OVER guard (after line 618 in game.py):
+#
+#   if self.target_list:
+#       self.message_log.add('An enemy is nearby!')
+#       break
+# ---------------------------------------------------------------------------
+
+class TestFastTravelLosInterruption:
+    def test_travel_stops_when_enemy_enters_los(self):
+        """Travel is interrupted when an enemy becomes visible mid-journey.
+
+        Setup:
+        - Player at (10, 10), destination (10, 13) — 3 steps right.
+        - GRUNT placed at (8, 8) — inside the carved open-floor area, off
+          to the side but with clear LOS from any position in the carved block.
+
+        After step 1 the player is at (10, 11).  _end_turn() runs and
+        get_enemies_in_los() finds the GRUNT at (8, 8) because the entire
+        carved area is open floor with no obstructions.  target_list becomes
+        non-empty.
+
+        Expected (with fix):
+        - Travel stops before reaching (10, 13): player does NOT end up there.
+        - travel_frames is non-empty (at least 1 step was taken).
+        - len(travel_frames) < 3 (travel was cut short).
+        - A message containing 'nearby' (case-insensitive) is logged.
+
+        Current behaviour (no fix):
+        - Travel completes all 3 steps; player ends at (10, 13);
+          len(travel_frames) == 3. The assertions below therefore FAIL.
+        """
+        game = _make_game()
+
+        # Place a living GRUNT at (8, 8) — open floor, visible from anywhere
+        # in the carved 7x7 block.
+        enemy_y, enemy_x = 8, 8
+        enemy = Enemy.from_def(GRUNT, Position(enemy_y, enemy_x))
+        game.current_map.enemies.append(enemy)
+
+        dest_y, dest_x = 10, 13
+        assert game.current_map.is_walkable(dest_y, dest_x)
+        assert (dest_y, dest_x) in game.current_map.explored
+
+        # Enter fast travel, position cursor 3 steps right, confirm.
+        game.handle_input('_')   # enter FAST_TRAVEL; cursor at (10, 10)
+        game.handle_input('l')   # cursor -> (10, 11)
+        game.handle_input('l')   # cursor -> (10, 12)
+        game.handle_input('l')   # cursor -> (10, 13)
+        assert game.fast_travel_cursor == (dest_y, dest_x)
+
+        msgs_before = len(game.message_log.get_all())
+        game.handle_input('_')   # confirm travel
+
+        state = game.get_render_state()
+        frames = state.get('travel_frames', [])
+
+        # At least one step must have been taken before interruption.
+        assert len(frames) > 0, (
+            'Expected at least 1 travel frame before LOS interruption, got 0'
+        )
+        # Travel must have been cut short — fewer than 3 frames.
+        assert len(frames) < 3, (
+            f'Expected travel to be interrupted before 3 steps (LOS), '
+            f'but got {len(frames)} frames; player still reached (10, 13).'
+        )
+        # Player must not have reached the destination.
+        assert not (game.player.pos.y == dest_y and
+                    game.player.pos.x == dest_x), (
+            'Player must not reach (10, 13) when enemy enters LOS mid-travel'
+        )
+        # A "nearby" warning must have been logged.
+        all_msgs = [m.lower() for m in game.message_log.get_all()]
+        new_msgs = all_msgs[msgs_before:]
+        assert any('nearby' in m for m in new_msgs), (
+            'Expected a message containing "nearby" when enemy enters LOS, '
+            f'but logged messages were: {new_msgs}'
+        )
+
+    def test_travel_completes_when_no_enemy_in_los(self):
+        """Travel completes normally when no enemy is present.
+
+        This is the control case: _make_game() clears all enemies, so
+        target_list remains empty after every _end_turn() call during
+        the journey.  The LOS-interruption guard must NOT fire.
+
+        Setup:
+        - Player at (10, 10), destination (10, 13) — 3 steps right.
+        - No enemies on the map (guaranteed by _make_game()).
+
+        Expected (both now and after fix):
+        - Player reaches (10, 13).
+        - State is PLAYING.
+        - len(travel_frames) == 3 (all steps completed).
+        """
+        game = _make_game()  # enemies already cleared
+
+        dest_y, dest_x = 10, 13
+        assert game.current_map.is_walkable(dest_y, dest_x)
+        assert (dest_y, dest_x) in game.current_map.explored
+
+        game.handle_input('_')   # enter FAST_TRAVEL
+        game.handle_input('l')   # cursor -> (10, 11)
+        game.handle_input('l')   # cursor -> (10, 12)
+        game.handle_input('l')   # cursor -> (10, 13)
+        assert game.fast_travel_cursor == (dest_y, dest_x)
+
+        game.handle_input('_')   # confirm travel
+
+        assert game.state == GameState.PLAYING
+        assert game.player.pos.y == dest_y
+        assert game.player.pos.x == dest_x
+
+        state = game.get_render_state()
+        frames = state.get('travel_frames', [])
+        assert len(frames) == 3, (
+            f'Expected 3 travel frames for 3-step path with no enemies, '
+            f'got {len(frames)}'
+        )
+
+    def test_travel_stops_at_step_where_enemy_first_enters_los(self):
+        """Travel stops at the exact step where an enemy first becomes visible.
+
+        A wall at (9, 11) blocks LOS from both (10, 10) and (10, 11) to the
+        GRUNT at (8, 12).  The enemy first enters LOS at step 2 when the
+        player is at (10, 12), because the Bresenham line from (10, 12) to
+        (8, 12) passes through (9, 12) only — no wall there.
+
+        Setup:
+        - Player at (10, 10), destination (10, 13) — 3 steps right.
+        - Wall at (9, 11) — blocks LOS to enemy from step-0 and step-1
+          positions but NOT from step-2 position (10, 12).
+        - GRUNT at (8, 12) — first becomes visible when player reaches (10, 12).
+
+        Expected (with fix):
+        - Player stops at (10, 12) (step 2 of 3).
+        - len(travel_frames) == 2.
+        - A message containing 'nearby' is logged.
+        - Player is at (10, 12), NOT (10, 13).
+
+        Current behaviour (no fix):
+        - Travel completes: player at (10, 13), len(frames) == 3. FAILS.
+        """
+        game = _make_game()
+
+        # Carve floor area already covers (8,12) and (9,11).
+        # Set (9, 11) to wall to block LOS from (10,10)/(10,11) to (8,12).
+        # The travel path goes along row 10 (cols 10→11→12→13) — unaffected.
+        game.current_map.set_tile(9, 11, TILE_WALL)
+
+        # Place a living GRUNT at (8, 12).
+        # (8,12) is already floor and explored via _make_game.
+        enemy_y, enemy_x = 8, 12
+        enemy = Enemy.from_def(GRUNT, Position(enemy_y, enemy_x))
+        game.current_map.enemies.append(enemy)
+
+        dest_y, dest_x = 10, 13
+        assert game.current_map.is_walkable(dest_y, dest_x)
+        assert (dest_y, dest_x) in game.current_map.explored
+
+        # Enter fast travel and set cursor to destination.
+        game.handle_input('_')   # enter FAST_TRAVEL
+        game.handle_input('l')   # cursor -> (10, 11)
+        game.handle_input('l')   # cursor -> (10, 12)
+        game.handle_input('l')   # cursor -> (10, 13)
+        assert game.fast_travel_cursor == (dest_y, dest_x)
+
+        msgs_before = len(game.message_log.get_all())
+        game.handle_input('_')   # confirm travel
+
+        state = game.get_render_state()
+        frames = state.get('travel_frames', [])
+
+        # Travel must have been interrupted at step 2 (player at (10, 12)).
+        assert len(frames) == 2, (
+            f'Expected exactly 2 travel frames (enemy spotted at step 2), '
+            f'got {len(frames)}. '
+            f'With no LOS check, travel completes 3 frames to (10,13).'
+        )
+        assert game.player.pos.y == 10
+        assert game.player.pos.x == 12, (
+            f'Player should be at (10, 12) when enemy at (8, 12) enters LOS, '
+            f'but player is at ({game.player.pos.y}, {game.player.pos.x})'
+        )
+        # A "nearby" warning must have been logged.
+        all_msgs = [m.lower() for m in game.message_log.get_all()]
+        new_msgs = all_msgs[msgs_before:]
+        assert any('nearby' in m for m in new_msgs), (
+            'Expected a message containing "nearby" when enemy enters LOS, '
+            f'but logged messages were: {new_msgs}'
+        )
