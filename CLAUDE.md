@@ -86,3 +86,4 @@ JSON-based, saved to `saves/savegame.json`. `Game._serialize()` / `Game._deseria
 ## Safety Rules
 - Never delete or create any GitHub repository under any circumstances
 - Never run `gh repo delete` or `gh repo create` without explicit user confirmation in the current session
+- Never merge a pull request without explicit user confirmation

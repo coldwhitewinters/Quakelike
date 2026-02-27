@@ -18,6 +18,7 @@ from quakelike.constants import (
     KEY_SWAP_WEAPON, KEY_MESSAGE_LOG, KEY_HELP, KEY_SAVE, KEY_QUIT,
     KEY_SLIPGATE_DOWN, KEY_SLIPGATE_UP,
     KEY_NAV_UP, KEY_NAV_DOWN, KEY_NAV_LEFT, KEY_NAV_RIGHT, KEY_FAST_TRAVEL,
+    KEY_REST, KEY_PICKUP,
     MAX_VISIBLE_MESSAGES,
     COLOR_WALL, COLOR_FLOOR, COLOR_DOOR, COLOR_SLIPGATE,
     COLOR_ENTRANCE, COLOR_WATER, COLOR_LAVA,
@@ -43,6 +44,7 @@ HELP_CONTENT = [
     '',
     'INVENTORY & ITEMS',
     '  i              Open inventory & floor panel',
+    '  ,              Pick up item from floor',
     '  Tab            Transfer item between panels',
     '  Enter          Use / equip selected item',
     '  w              Swap to previous weapon',
@@ -58,6 +60,7 @@ HELP_CONTENT = [
     '  <              Ascend slipgate',
     '',
     'OTHER',
+    '  .              Rest / skip turn',
     '  x              Examine tile (move cursor with h/j/k/l)',
     '  _              Fast travel (move cursor, _ to confirm)',
     '  p              View message log',
@@ -207,6 +210,11 @@ class Game:
             self.state = GameState.GAME_OVER
             self.quit = True
             self.message_log.add('You quit the game.')
+        elif key == KEY_REST:
+            self.message_log.add('You rest.')
+            self._end_turn()
+        elif key == KEY_PICKUP:
+            self._pickup_floor_item()
 
         return self.get_render_state()
 
@@ -331,7 +339,24 @@ class Game:
         self.state = GameState.INVENTORY
         self.inventory_cursor = 0
         self.loot_cursor = 0
-        self.active_panel = 'inventory'
+        ground_items = self.current_map.get_items_at(self.player.pos.y, self.player.pos.x)
+        self.active_panel = 'loot' if ground_items else 'inventory'
+
+    def _pickup_floor_item(self) -> None:
+        """Pick up the first item on the floor at the player's position."""
+        py, px = self.player.pos.y, self.player.pos.x
+        floor_items = self.current_map.get_items_at(py, px)
+        if not floor_items:
+            self.message_log.add('Nothing to pick up.')
+            return
+        item = floor_items[0]
+        if self.player.inventory.can_add(item):
+            self.current_map.remove_item_at(py, px, 0)
+            self.player.inventory.add_item(item)
+            self.message_log.add(f'Picked up {item.name}.')
+            self._end_turn()
+        else:
+            self.message_log.add('Inventory is full.')
 
     def _handle_inventory_input(self, key: str) -> dict:
         """Handle input while in inventory/loot mode."""
@@ -340,22 +365,23 @@ class Game:
 
         if key == KEY_INVENTORY or key == 'Escape':
             self.state = GameState.PLAYING
-        elif key == KEY_NAV_UP:
+        elif key == KEY_NAV_UP or key == 'k':
             if self.active_panel == 'loot':
                 self.loot_cursor = max(0, self.loot_cursor - 1)
             else:
                 self.inventory_cursor = max(0, self.inventory_cursor - 1)
-        elif key == KEY_NAV_DOWN:
+        elif key == KEY_NAV_DOWN or key == 'j':
             if self.active_panel == 'loot':
-                self.loot_cursor = min(len(ground_items) - 1,
-                                       self.loot_cursor + 1)
+                if ground_items:
+                    self.loot_cursor = min(len(ground_items) - 1,
+                                           self.loot_cursor + 1)
             else:
                 self.inventory_cursor = min(
                     self.player.inventory.count - 1,
                     self.inventory_cursor + 1)
-        elif key == KEY_NAV_LEFT:
+        elif key == KEY_NAV_LEFT or key == 'h':
             self.active_panel = 'loot'
-        elif key == KEY_NAV_RIGHT:
+        elif key == KEY_NAV_RIGHT or key == 'l':
             self.active_panel = 'inventory'
         elif key == KEY_TRANSFER:
             self._pick_drop_item(ground_items)

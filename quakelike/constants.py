@@ -81,6 +81,8 @@ KEY_NAV_DOWN = 'ArrowDown'
 KEY_NAV_LEFT = 'ArrowLeft'
 KEY_NAV_RIGHT = 'ArrowRight'
 KEY_FAST_TRAVEL = '_'
+KEY_REST = '.'   # Same char as TILE_FLOOR; safe: key input and tile chars are separate namespaces
+KEY_PICKUP = ','
 
 # Map generation parameters
 MIN_ROOM_SIZE = 4
