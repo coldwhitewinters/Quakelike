@@ -55,7 +55,7 @@ Browser ↔ Flask-SocketIO (WebSocket) ↔ `Game` object (per session)
 - `PLAYING` → normal movement/combat
 - `INVENTORY` / `LOOT` → item management panels
 - `TARGETING` → ranged target selection
-- `FAST_TRAVEL` → cursor-based teleport destination selection
+- `FAST_TRAVEL` → cursor-based destination selection for step-by-step autopath travel
 - `MESSAGE_LOG` → scrollable log view
 - `GAME_OVER` / `VICTORY` → terminal states
 
@@ -82,3 +82,7 @@ JSON-based, saved to `saves/savegame.json`. `Game._serialize()` / `Game._deseria
 - The Rune appears on map index 39 (level 40); victory requires returning to map index 0 with the Rune in inventory
 - `specs.md` contains the authoritative design requirements
 - TDD is the intended workflow: write tests first, then implement
+
+## Safety Rules
+- Never delete or create any GitHub repository under any circumstances
+- Never run `gh repo delete` or `gh repo create` without explicit user confirmation in the current session

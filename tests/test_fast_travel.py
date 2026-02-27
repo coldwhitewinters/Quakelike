@@ -1,18 +1,32 @@
 """Tests for the fast travel feature.
 
-These tests are written TDD-style and are expected to FAIL until the feature
-is implemented. The feature adds a FAST_TRAVEL GameState entered by pressing
-'_' in PLAYING mode, allowing the player to move a cursor and teleport to any
-explored, walkable, enemy-free tile.
+The first set of tests (cursor movement, cancellation, invalid destinations,
+render state) covers the existing cursor-mode behaviour and should continue
+to pass.
 
-Planned changes (not yet implemented):
-  - quakelike/constants.py: KEY_FAST_TRAVEL = '_'
-  - quakelike/game.py:
-      - GameState.FAST_TRAVEL in the enum
-      - fast_travel_cursor: tuple[int, int] field on Game
-      - _enter_fast_travel() / _handle_fast_travel_input(key)
-      - _handle_playing_input routes '_' to _enter_fast_travel()
-      - get_render_state includes show_fast_travel and fast_travel_cursor
+The second set (TestFastTravelTeleport and TestFastTravelAutopath) specifies
+the NEW step-by-step autopath behaviour that replaces instant teleportation:
+
+  1. Player enters FAST_TRAVEL cursor mode, selects a destination, presses
+     '_' to confirm.
+  2. The backend computes a BFS path from player to destination (through
+     walkable explored tiles).
+  3. The player is moved ONE step along the path.  Enemy AI runs (_end_turn).
+  4. The remaining path is stored in Game.travel_path: list[tuple[int, int]].
+  5. While travel_path is non-empty and the player presses '_' in PLAYING
+     state, the player advances another step.
+  6. Travel completes when the destination is reached (path exhausted).
+  7. Environmental effects (lava damage) happen step-by-step.
+  8. Pressing a movement key (h/j/k/l/y/u/b/n) while traveling cancels the
+     travel and processes the movement normally.
+  9. Travel is interrupted if the next tile in the path has a living enemy.
+
+The render state gains a 'traveling' bool that is True when travel_path is
+non-empty.
+
+Tests in TestFastTravelTeleport and TestFastTravelAutopath are expected to
+FAIL against the current code (which still uses instant teleportation) and
+will pass once the step-by-step implementation is in place.
 """
 
 import pytest
@@ -30,9 +44,12 @@ from quakelike.constants import TILE_FLOOR, TILE_LAVA, TILE_WALL, TILE_ENTRANCE
 def _make_game(seed: int = 42) -> Game:
     """Create a new game with enemies cleared and a known player position.
 
-    The player is placed at (10, 10) with a 7x7 open floor area around them,
-    all revealed.  The border of the map is always TILE_WALL so boundary tests
-    work correctly.
+    The player is placed at (10, 10) with a 7x7 open floor area around them
+    (rows 7-13, columns 7-13), all revealed.  The border of the map is always
+    TILE_WALL so boundary tests work correctly.
+
+    BFS paths within the carved area are valid: every tile in the 7x7 block
+    is TILE_FLOOR and in the explored set.
     """
     game = Game()
     game.new_game(seed=seed)
@@ -179,40 +196,52 @@ class TestFastTravelCancellation:
         assert game.state == GameState.FAST_TRAVEL
         # Player must not have moved
         assert (game.player.pos.y, game.player.pos.x) == original_pos
-        # Turn must not have advanced (failed teleport does not cost a turn)
+        # Turn must not have advanced (failed confirm does not cost a turn)
         assert game.turn == initial_turn
 
 
 # ---------------------------------------------------------------------------
-# 4. Successful teleport
+# 4. Step-by-step autopath travel (replaces instant teleportation)
+#
+# These tests specify the new intended behavior.  They currently FAIL because
+# the implementation still uses instant teleportation.  They will PASS once
+# the BFS autopath implementation is in place.
 # ---------------------------------------------------------------------------
 
 class TestFastTravelTeleport:
-    def test_fast_travel_teleports_player_to_cursor(self):
-        """Confirming with '_' on a valid explored walkable tile moves the player."""
+    def test_fast_travel_moves_player_one_step(self):
+        """Confirming fast travel to a 1-step-away destination moves player there.
+
+        When the destination is adjacent (1 step), the path is exhausted
+        immediately: player arrives, state returns to PLAYING, traveling=False.
+        """
         game = _make_game()
-        # Destination tile (9, 10) is already carved and explored by _make_game
+        # Destination tile (9, 10) is 1 step up — already carved and explored
         dest_y, dest_x = 9, 10
         assert game.current_map.is_walkable(dest_y, dest_x)
         assert (dest_y, dest_x) in game.current_map.explored
 
-        game.handle_input('_')  # enter fast travel; cursor at (10, 10)
+        game.handle_input('_')   # enter fast travel; cursor at (10, 10)
         assert game.state == GameState.FAST_TRAVEL
         # Move cursor one step up to (9, 10)
         game.handle_input('k')
         assert game.fast_travel_cursor == (dest_y, dest_x)
-        # Confirm teleport
+        # Confirm travel — one step path exhausted in one move
         game.handle_input('_')
+
         assert game.state == GameState.PLAYING
         assert game.player.pos.y == dest_y
         assert game.player.pos.x == dest_x
+        # Path is exhausted: traveling must be False
+        render = game.get_render_state()
+        assert render.get('traveling') is False
 
     def test_fast_travel_to_same_tile_is_valid(self):
-        """Teleporting to the player's current tile is accepted (no-op move).
+        """Confirming travel to the player's current tile is a valid no-op.
 
-        Per spec: there is no restriction against the cursor being on the
-        player's own tile; confirming there should succeed and return to PLAYING.
-        The turn counter must advance to confirm _end_turn() was called.
+        Path length is 0 (player is already at destination).  One _end_turn()
+        call is still expected so the turn counter advances by 1.  State
+        returns to PLAYING and traveling is False.
         """
         game = _make_game()
         py, px = game.player.pos.y, game.player.pos.x
@@ -223,42 +252,64 @@ class TestFastTravelTeleport:
         # Cursor should be at player position; confirm immediately
         assert game.fast_travel_cursor == (py, px)
         game.handle_input('_')
-        # Teleport must be accepted
+
+        # Must be accepted (return to PLAYING)
         assert game.state == GameState.PLAYING
+        # Player stays at same position
         assert game.player.pos.y == py
         assert game.player.pos.x == px
-        # _end_turn() must have been called
+        # _end_turn() must have been called exactly once
         assert game.turn == initial_turn + 1
+        # traveling must be False (no path to follow)
+        render = game.get_render_state()
+        assert render.get('traveling') is False
 
     def test_fast_travel_ends_turn(self):
-        """A successful fast travel teleport increments game.turn.
+        """Step-by-step travel to a 2-tile destination advances turn twice.
 
-        The destination is two tiles up (row 8) so normal movement cannot
-        reach it in a single key press — the turn increment must come from
-        the fast travel path, not from a regular move.
+        Destination is (8, 10), two steps up from player at (10, 10).
+
+        Step 1: Press '_' to confirm — player moves to (9, 10), turn +1.
+        Step 2: Press '_' again to continue — player moves to (8, 10), turn +2.
+        State is PLAYING, traveling is False (path exhausted).
         """
         game = _make_game()
-        # Destination two steps up from player (8, 10) — not adjacent via one move
+        # Destination two steps up from player — already carved and explored
         dest_y, dest_x = 8, 10
-        game.current_map.set_tile(dest_y, dest_x, TILE_FLOOR)
-        game.current_map.explored.add((dest_y, dest_x))
+        assert game.current_map.is_walkable(dest_y, dest_x)
+        assert (dest_y, dest_x) in game.current_map.explored
 
         initial_turn = game.turn
-        game.handle_input('_')           # enter fast travel (no turn)
+
+        game.handle_input('_')           # enter fast travel (no turn cost)
         assert game.state == GameState.FAST_TRAVEL
-        game.handle_input('k')           # move cursor up to (9, 10) — no turn
-        game.handle_input('k')           # move cursor up to (8, 10) — no turn
+        game.handle_input('k')           # move cursor up to (9, 10)
+        game.handle_input('k')           # move cursor up to (8, 10)
         assert game.fast_travel_cursor == (dest_y, dest_x)
-        game.handle_input('_')           # confirm teleport — costs one turn
+
+        # Confirm: first step — player moves to (9, 10), path has 1 step left
+        game.handle_input('_')
         assert game.state == GameState.PLAYING
-        assert game.player.pos.y == dest_y
+        assert game.player.pos.y == 9
+        assert game.player.pos.x == 10
         assert game.turn == initial_turn + 1
 
-    def test_fast_travel_applies_lava_damage(self):
-        """Teleporting to a TILE_LAVA tile without a biosuit deals damage.
+        # Continue: second step — player moves to (8, 10), path exhausted
+        game.handle_input('_')
+        assert game.state == GameState.PLAYING
+        assert game.player.pos.y == dest_y
+        assert game.player.pos.x == dest_x
+        assert game.turn == initial_turn + 2
+        render = game.get_render_state()
+        assert render.get('traveling') is False
 
-        The lava tile is placed three steps to the right (10, 13) so it
-        cannot be reached accidentally by a normal movement key.
+    def test_fast_travel_applies_lava_damage(self):
+        """Environmental lava damage is applied step-by-step as player walks.
+
+        Lava tile at (10, 13) is 3 steps right of player at (10, 10).
+        After confirm, the player is at (10, 11) — NOT the lava tile yet.
+        After 2 more '_' presses (3 total steps), player is on the lava tile
+        and has taken damage.
         """
         game = _make_game()
         lava_y, lava_x = 10, 13
@@ -267,29 +318,59 @@ class TestFastTravelTeleport:
         game.player.biosuit_turns = 0  # no protection
 
         initial_hp = game.player.health
+
         game.handle_input('_')            # enter fast travel
         assert game.state == GameState.FAST_TRAVEL
         game.handle_input('l')            # cursor right -> (10, 11)
         game.handle_input('l')            # cursor right -> (10, 12)
         game.handle_input('l')            # cursor right -> (10, 13) — lava
         assert game.fast_travel_cursor == (lava_y, lava_x)
-        game.handle_input('_')            # confirm teleport to lava
+
+        # Confirm: step 1 — player moves to (10, 11), NOT lava yet
+        game.handle_input('_')
+        assert game.state == GameState.PLAYING
+        # After step 1 the player must NOT be on the lava tile yet
+        assert game.player.pos.x == 11, (
+            "After first step of 3-step travel, player should be at (10, 11), "
+            "not instantly teleported to lava"
+        )
+        assert game.player.health == initial_hp, (
+            "No lava damage should occur before reaching the lava tile"
+        )
+
+        # Continue: step 2 — player moves to (10, 12), still not lava
+        game.handle_input('_')
+        assert game.player.pos.x == 12
+        assert game.player.health == initial_hp
+
+        # Continue: step 3 — player moves to (10, 13) — lava!
+        game.handle_input('_')
+
         assert game.state == GameState.PLAYING
         assert game.player.pos.y == lava_y
         assert game.player.pos.x == lava_x
+        # Lava damage must have been applied on entering the lava tile
         assert game.player.health < initial_hp
 
     def test_fast_travel_to_lava_fatal_damage_causes_game_over(self):
-        """Teleporting to lava when health is too low (5 HP) kills the player.
+        """Walking into lava via autopath kills the player when HP is too low.
 
-        Lava deals 10 damage on entry; with only 5 HP the player dies and the
-        game must transition to GAME_OVER.
+        Lava tile at (10, 13) is 3 steps away.  With only 5 HP, step 3
+        (onto lava) deals 10 damage, killing the player.  The game must
+        transition to GAME_OVER.
+
+        Requires 3 '_' presses: confirm + 2 continues.
+
+        After the first confirm (step 1), the player must be at (10, 11),
+        still alive — proving instant teleport did NOT occur.
         """
         game = Game()
         game.new_game(seed=42)
         game.current_map.enemies.clear()
         game.player.pos = Position(10, 10)
-        game.current_map.set_tile(10, 10, TILE_FLOOR)
+        # Carve a floor corridor from (10,10) to (10,13)
+        for nx in range(10, 14):
+            game.current_map.set_tile(10, nx, TILE_FLOOR)
         game.current_map.reveal_around(10, 10)
 
         lava_y, lava_x = 10, 13
@@ -299,10 +380,26 @@ class TestFastTravelTeleport:
         game.player.health = 5  # Will die from 10 lava damage
 
         game.handle_input('_')   # Enter fast travel mode
-        game.handle_input('l')   # Move cursor right -> (10, 11)
-        game.handle_input('l')   # Move cursor right -> (10, 12)
-        game.handle_input('l')   # Move cursor right -> (10, 13)
-        game.handle_input('_')   # Confirm teleport to lava
+        game.handle_input('l')   # Cursor right -> (10, 11)
+        game.handle_input('l')   # Cursor right -> (10, 12)
+        game.handle_input('l')   # Cursor right -> (10, 13) — lava
+        assert game.fast_travel_cursor == (lava_y, lava_x)
+
+        # Confirm: step 1 — player should move to (10, 11), still alive
+        game.handle_input('_')
+        assert game.state == GameState.PLAYING, (
+            "After step 1 of 3-step travel, game must be PLAYING (player not dead yet)"
+        )
+        assert game.player.pos.x == 11, (
+            "After step 1, player should be at (10, 11), not instantly on lava"
+        )
+
+        # Continue: step 2 — move to (10, 12)
+        game.handle_input('_')
+        assert game.state == GameState.PLAYING
+
+        # Continue: step 3 — move to (10, 13) lava, player dies
+        game.handle_input('_')
 
         assert game.state == GameState.GAME_OVER
 
@@ -333,7 +430,7 @@ class TestFastTravelInvalidDestinations:
         game.handle_input('k')
         game.handle_input('k')
         assert game.fast_travel_cursor == (unexplored_y, unexplored_x)
-        game.handle_input('_')  # attempt teleport
+        game.handle_input('_')  # attempt confirm
 
         # Must remain in FAST_TRAVEL
         assert game.state == GameState.FAST_TRAVEL
@@ -361,7 +458,7 @@ class TestFastTravelInvalidDestinations:
         game.handle_input('k')
         game.handle_input('k')
         assert game.fast_travel_cursor == (wall_y, wall_x)
-        game.handle_input('_')  # attempt teleport
+        game.handle_input('_')  # attempt confirm
 
         assert game.state == GameState.FAST_TRAVEL
         assert (game.player.pos.y, game.player.pos.x) == original_pos
@@ -386,7 +483,7 @@ class TestFastTravelInvalidDestinations:
 
         game.handle_input('k')  # cursor -> (9, 10)
         assert game.fast_travel_cursor == (enemy_y, enemy_x)
-        game.handle_input('_')  # attempt teleport
+        game.handle_input('_')  # attempt confirm
 
         assert game.state == GameState.FAST_TRAVEL
         assert (game.player.pos.y, game.player.pos.x) == original_pos
@@ -427,3 +524,233 @@ class TestFastTravelRenderState:
         state = game.get_render_state()
         assert 'fast_travel_cursor' in state
         assert state['fast_travel_cursor'] == [expected_y, expected_x]
+
+
+# ---------------------------------------------------------------------------
+# 7. Autopath travel — new behaviour tests
+#
+# All tests in this class are expected to FAIL against the current code and
+# will pass once the step-by-step BFS implementation is in place.
+# ---------------------------------------------------------------------------
+
+class TestFastTravelAutopath:
+    def test_fast_travel_stores_remaining_path_after_first_step(self):
+        """After confirming travel to a 3-step destination, game.travel_path
+        contains the remaining steps (non-empty) after the first move.
+
+        Destination (10, 13) is 3 steps right of player at (10, 10).
+        After the first '_' confirm, the player is at (10, 11) and
+        travel_path still has 2 entries remaining.
+        """
+        game = _make_game()
+        dest_y, dest_x = 10, 13
+        assert game.current_map.is_walkable(dest_y, dest_x)
+        assert (dest_y, dest_x) in game.current_map.explored
+
+        game.handle_input('_')   # enter fast travel
+        game.handle_input('l')   # cursor -> (10, 11)
+        game.handle_input('l')   # cursor -> (10, 12)
+        game.handle_input('l')   # cursor -> (10, 13)
+        assert game.fast_travel_cursor == (dest_y, dest_x)
+
+        # Confirm: first step
+        game.handle_input('_')
+
+        assert game.state == GameState.PLAYING
+        assert game.player.pos.y == 10
+        assert game.player.pos.x == 11
+        # travel_path must be non-empty — 2 steps remain to (10, 13)
+        assert hasattr(game, 'travel_path')
+        assert len(game.travel_path) > 0
+
+    def test_fast_travel_continues_on_underscore_in_playing_state(self):
+        """Pressing '_' in PLAYING state while travel_path is non-empty
+        advances the player one more step along the stored path.
+        """
+        game = _make_game()
+        dest_y, dest_x = 10, 13
+        assert game.current_map.is_walkable(dest_y, dest_x)
+        assert (dest_y, dest_x) in game.current_map.explored
+
+        game.handle_input('_')   # enter fast travel
+        game.handle_input('l')   # cursor -> (10, 11)
+        game.handle_input('l')   # cursor -> (10, 12)
+        game.handle_input('l')   # cursor -> (10, 13)
+
+        # Step 1: confirm — player moves to (10, 11), 2 steps remain
+        game.handle_input('_')
+        assert game.player.pos.x == 11
+
+        # Step 2: continue via '_' in PLAYING state
+        game.handle_input('_')
+        assert game.state == GameState.PLAYING
+        assert game.player.pos.y == 10
+        assert game.player.pos.x == 12
+
+    def test_fast_travel_completes_after_all_steps(self):
+        """Traveling a 3-tile path with 3 '_' presses places player at
+        destination and traveling is False when the path is exhausted.
+        """
+        game = _make_game()
+        dest_y, dest_x = 10, 13
+        assert game.current_map.is_walkable(dest_y, dest_x)
+        assert (dest_y, dest_x) in game.current_map.explored
+
+        initial_turn = game.turn
+
+        game.handle_input('_')   # enter fast travel
+        game.handle_input('l')   # cursor -> (10, 11)
+        game.handle_input('l')   # cursor -> (10, 12)
+        game.handle_input('l')   # cursor -> (10, 13)
+
+        # 3 steps, 3 '_' presses
+        game.handle_input('_')  # step 1 -> (10, 11)
+        game.handle_input('_')  # step 2 -> (10, 12)
+        game.handle_input('_')  # step 3 -> (10, 13)
+
+        assert game.state == GameState.PLAYING
+        assert game.player.pos.y == dest_y
+        assert game.player.pos.x == dest_x
+        # Turn advanced once per step
+        assert game.turn == initial_turn + 3
+        # Path exhausted
+        render = game.get_render_state()
+        assert render.get('traveling') is False
+        assert hasattr(game, 'travel_path')
+        assert game.travel_path == []
+
+    def test_fast_travel_movement_key_cancels_travel(self):
+        """Pressing a movement key (k = move up) while travel_path is
+        non-empty cancels the autopath and processes the movement normally.
+
+        After cancellation:
+        - travel_path must be empty (or the attribute cleared)
+        - The movement key moves the player as a normal step
+        - The turn advances for the normal move
+        """
+        game = _make_game()
+        dest_y, dest_x = 10, 13
+        assert game.current_map.is_walkable(dest_y, dest_x)
+        assert (dest_y, dest_x) in game.current_map.explored
+
+        game.handle_input('_')   # enter fast travel
+        game.handle_input('l')   # cursor -> (10, 11)
+        game.handle_input('l')   # cursor -> (10, 12)
+        game.handle_input('l')   # cursor -> (10, 13)
+
+        # Step 1: confirm — player at (10, 11), 2 steps remain in travel_path
+        game.handle_input('_')
+        assert game.player.pos.x == 11
+        assert hasattr(game, 'travel_path')
+        assert len(game.travel_path) > 0
+
+        turn_before_cancel = game.turn
+
+        # Press movement key 'k' (move up) — should cancel travel and move up
+        game.handle_input('k')
+
+        assert game.state == GameState.PLAYING
+        # travel_path must be cleared
+        assert hasattr(game, 'travel_path')
+        assert game.travel_path == []
+        # Player moved up from (10, 11) to (9, 11) via normal movement
+        assert game.player.pos.y == 9
+        assert game.player.pos.x == 11
+        # Turn advanced for the normal move
+        assert game.turn == turn_before_cancel + 1
+
+    def test_fast_travel_stops_when_enemy_blocks_next_step(self):
+        """Travel is interrupted when the next tile in the path has a living enemy.
+
+        Setup:
+        - Player at (10, 10)
+        - Destination at (10, 13) — 3 steps right
+        - Enemy placed at (10, 12), which is step 2 of the path
+
+        After step 1 (player moves to (10, 11)):
+        - Pressing '_' to continue should detect the enemy at (10, 12) and
+          stop travel: player stays at (10, 11), travel_path is cleared,
+          a message is logged, state remains PLAYING.
+        """
+        game = _make_game()
+        dest_y, dest_x = 10, 13
+        assert game.current_map.is_walkable(dest_y, dest_x)
+        assert (dest_y, dest_x) in game.current_map.explored
+
+        # Place a living enemy on tile (10, 12) — step 2 of the path
+        enemy_y, enemy_x = 10, 12
+        enemy = Enemy.from_def(GRUNT, Position(enemy_y, enemy_x))
+        game.current_map.enemies.append(enemy)
+
+        game.handle_input('_')   # enter fast travel
+        game.handle_input('l')   # cursor -> (10, 11)
+        game.handle_input('l')   # cursor -> (10, 12)
+        game.handle_input('l')   # cursor -> (10, 13)
+
+        # Step 1: confirm — player moves to (10, 11); enemy not yet in the way
+        game.handle_input('_')
+        assert game.player.pos.x == 11
+
+        msgs_before_stop = len(game.message_log.get_all())
+
+        # Attempt step 2: enemy blocks (10, 12) — travel must stop
+        game.handle_input('_')
+
+        assert game.state == GameState.PLAYING
+        # Player must NOT have moved into the enemy's tile
+        assert game.player.pos.y == 10
+        assert game.player.pos.x == 11
+        # travel_path must be cleared
+        assert hasattr(game, 'travel_path')
+        assert game.travel_path == []
+        # A message must have been logged about the interruption
+        assert len(game.message_log.get_all()) > msgs_before_stop
+
+    def test_render_state_has_traveling_true_when_path_nonempty(self):
+        """After confirming travel to a 3-tile destination, get_render_state()
+        returns 'traveling': True (because travel_path is non-empty).
+        """
+        game = _make_game()
+        dest_y, dest_x = 10, 13
+        assert game.current_map.is_walkable(dest_y, dest_x)
+        assert (dest_y, dest_x) in game.current_map.explored
+
+        game.handle_input('_')   # enter fast travel
+        game.handle_input('l')
+        game.handle_input('l')
+        game.handle_input('l')
+        assert game.fast_travel_cursor == (dest_y, dest_x)
+
+        # First step: path should still have remaining steps
+        game.handle_input('_')
+
+        render = game.get_render_state()
+        assert 'traveling' in render, "'traveling' key must be present in render state"
+        assert render['traveling'] is True
+
+    def test_render_state_has_traveling_false_when_path_empty(self):
+        """After travel completes (all steps taken), get_render_state()
+        returns 'traveling': False.
+        """
+        game = _make_game()
+        dest_y, dest_x = 10, 13
+        assert game.current_map.is_walkable(dest_y, dest_x)
+        assert (dest_y, dest_x) in game.current_map.explored
+
+        game.handle_input('_')   # enter fast travel
+        game.handle_input('l')
+        game.handle_input('l')
+        game.handle_input('l')
+        assert game.fast_travel_cursor == (dest_y, dest_x)
+
+        # Complete all 3 steps
+        game.handle_input('_')  # step 1
+        game.handle_input('_')  # step 2
+        game.handle_input('_')  # step 3
+
+        assert game.player.pos.y == dest_y
+        assert game.player.pos.x == dest_x
+
+        render = game.get_render_state()
+        assert 'traveling' in render, "'traveling' key must be present in render state"
+        assert render['traveling'] is False

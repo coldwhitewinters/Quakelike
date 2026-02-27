@@ -20,6 +20,9 @@ function initSocket() {
     socket.on('game_state', (state) => {
         gameState = state;
         render(state);
+        if (state.traveling) {
+            setTimeout(() => sendInput('_'), 100);
+        }
     });
 
     socket.on('error', (data) => {
@@ -90,7 +93,7 @@ document.addEventListener('keydown', (e) => {
 
     // Prevent default for game keys
     const gameKeys = [
-        'h', 'j', 'k', 'l', 'y', 'u', 'b', 'n',
+        'h', 'j', 'k', 'l', 'y', 'u', 'b', 'n', '_',
         'i', 'x', 't', 'T', 'f', 'w', 'p', 'S', 'Q',
         '?', '>', '<', 'Enter', 'Escape', 'Tab',
         'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'
