@@ -42,6 +42,7 @@ t: target enemies
 f: fire weapon
 w: equip previously equipped weapon
 p: open message log
+_: enter fast travel cursor mode (move cursor with movement keys, _ to confirm and auto-walk step-by-step, Escape to cancel; press _ again to advance each step, movement key to interrupt)
 S: save game
 Q: quit game without saving
 

@@ -80,6 +80,7 @@ KEY_NAV_UP = 'ArrowUp'
 KEY_NAV_DOWN = 'ArrowDown'
 KEY_NAV_LEFT = 'ArrowLeft'
 KEY_NAV_RIGHT = 'ArrowRight'
+KEY_FAST_TRAVEL = '_'
 
 # Map generation parameters
 MIN_ROOM_SIZE = 4
