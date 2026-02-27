@@ -139,12 +139,6 @@ function animateTravelFrames(finalState, frames) {
         if (frameIndex > 0) {
             const [prevY, prevX] = frames[frameIndex - 1];
             animMap[prevY][prevX] = Object.assign({}, finalState.map[prevY][prevX]);
-        } else {
-            // First frame: restore destination to its underlying tile
-            // Use player_tile from backend if available, otherwise fall back to a floor tile
-            if (finalState.player_tile) {
-                animMap[destY][destX] = Object.assign({}, finalState.player_tile);
-            }
         }
 
         // Place player at current frame position

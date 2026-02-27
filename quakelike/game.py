@@ -172,6 +172,7 @@ class Game:
 
     def _handle_playing_input(self, key: str) -> dict:
         """Handle input during normal play."""
+        self._travel_frames = []  # clear stale animation data from previous travel
         if key in DIRECTIONS:
             self._move_player(key)
         elif key == KEY_SLIPGATE_DOWN:
@@ -584,11 +585,9 @@ class Game:
             return  # stay in FAST_TRAVEL
 
         # Execute ALL steps, collecting intermediate positions
-        self.travel_path = path
         self.state = GameState.PLAYING
         frames = []
-        while self.travel_path:
-            step = self.travel_path.pop(0)
+        for step in path:
             ey, ex = step
             enemy = gmap.get_enemy_at(ey, ex)
             if enemy is not None and enemy.is_alive:
@@ -610,16 +609,13 @@ class Game:
                     self.current_map_idx == 0):
                 self.state = GameState.VICTORY
                 self.message_log.add('You return with the Rune! VICTORY!')
-                self.travel_path = []
                 self._travel_frames = frames
                 return
             # End turn for this step
             self._end_turn()
             if self.state == GameState.GAME_OVER:
-                self.travel_path = []
                 self._travel_frames = frames
                 return
-        self.travel_path = []
         self._travel_frames = frames
 
     def _get_examine_info(self) -> str:

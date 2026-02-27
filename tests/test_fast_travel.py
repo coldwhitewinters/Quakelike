@@ -725,3 +725,24 @@ class TestFastTravelAutopath:
         render = game.get_render_state()
         # 'traveling' must be False — travel is always complete before returning
         assert render.get('traveling') is False
+
+    def test_travel_frames_cleared_on_next_action(self):
+        """travel_frames must be empty after the next player action.
+
+        Regression test: _travel_frames was not cleared between turns, causing
+        the animation to replay on every subsequent keypress after travel.
+        """
+        game = _make_game()
+        dest_y, dest_x = 10, 13
+        game.handle_input('_')
+        game.handle_input('l')
+        game.handle_input('l')
+        game.handle_input('l')
+        game.handle_input('_')  # confirm 3-step travel
+
+        # Frames populated after confirm
+        assert len(game.get_render_state()['travel_frames']) == 3
+
+        # Any subsequent action must clear travel_frames
+        game.handle_input('h')  # move left
+        assert game.get_render_state()['travel_frames'] == []
