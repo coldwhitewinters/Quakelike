@@ -18,11 +18,12 @@ _PATTERN = re.compile(
     r"setTimeout\(\s*\(\s*\)\s*=>\s*sendInput\('_'\)\s*,\s*(\d+)\s*\)"
 )
 
+MIN_DELAY_MS = 10   # below this, setTimeout collapses into a busy-loop
 MAX_DELAY_MS = 30
 
 
 def test_fast_travel_step_delay_is_at_most_30_ms():
-    """The setTimeout delay for auto-travel continuation must not exceed 30 ms."""
+    """The setTimeout delay for auto-travel continuation must be 10–30 ms."""
     source = GAME_JS.read_text(encoding="utf-8")
 
     matches = _PATTERN.findall(source)
@@ -34,6 +35,11 @@ def test_fast_travel_step_delay_is_at_most_30_ms():
     # There should be exactly one such call; assert on all matches to be safe.
     for raw_value in matches:
         delay_ms = int(raw_value)
+        assert delay_ms >= MIN_DELAY_MS, (
+            f"Fast-travel step delay is {delay_ms} ms "
+            f"(found in {GAME_JS}), but must be >= {MIN_DELAY_MS} ms. "
+            f"A value this low risks starving the browser main thread."
+        )
         assert delay_ms <= MAX_DELAY_MS, (
             f"Fast-travel step delay is {delay_ms} ms "
             f"(found in {GAME_JS}), but must be <= {MAX_DELAY_MS} ms. "
