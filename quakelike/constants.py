@@ -91,5 +91,8 @@ MIN_ROOMS = 6
 MAX_ROOMS = 14
 CORRIDOR_WIDTH = 1
 
+# Door behavior
+DOOR_CLOSE_DELAY = 5  # Turns before an open door automatically closes
+
 # Message log
 MAX_VISIBLE_MESSAGES = 3

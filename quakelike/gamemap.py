@@ -10,7 +10,7 @@ from quakelike.constants import (
     TILE_SLIPGATE_DOWN, TILE_SLIPGATE_UP, TILE_ENTRANCE,
     TILE_WATER, TILE_LAVA,
     MIN_ROOM_SIZE, MAX_ROOM_SIZE, MIN_ROOMS, MAX_ROOMS,
-    NUM_MAPS,
+    NUM_MAPS, DOOR_CLOSE_DELAY,
 )
 from quakelike.entity import Position
 from quakelike.items import (
@@ -69,6 +69,7 @@ class GameMap:
     entrance_pos: Optional[Position] = None
     player_start: Optional[Position] = None
     explored: set[tuple[int, int]] = field(default_factory=set)
+    open_doors: dict = field(default_factory=dict)  # pos (y, x) → close_turn
 
     def __post_init__(self):
         """Initialize the tile grid if not provided."""
@@ -86,10 +87,24 @@ class GameMap:
         if 0 <= y < self.height and 0 <= x < self.width:
             self.tiles[y][x] = tile
 
+    def is_open_door(self, y: int, x: int) -> bool:
+        """Check if the door at (y, x) is currently open."""
+        return (y, x) in self.open_doors
+
+    def open_door(self, y: int, x: int, close_turn: int) -> None:
+        """Open the door at (y, x); it will auto-close at close_turn."""
+        self.open_doors[(y, x)] = close_turn
+
+    def close_door(self, y: int, x: int) -> None:
+        """Close the door at (y, x)."""
+        self.open_doors.pop((y, x), None)
+
     def is_walkable(self, y: int, x: int) -> bool:
         """Check if a tile can be walked on."""
         tile = self.get_tile(y, x)
-        return tile in (TILE_FLOOR, TILE_DOOR, TILE_SLIPGATE_DOWN,
+        if tile == TILE_DOOR:
+            return (y, x) in self.open_doors
+        return tile in (TILE_FLOOR, TILE_SLIPGATE_DOWN,
                         TILE_SLIPGATE_UP, TILE_ENTRANCE, TILE_WATER,
                         TILE_LAVA)
 
@@ -100,7 +115,9 @@ class GameMap:
     def is_transparent(self, y: int, x: int) -> bool:
         """Check if a tile allows line of sight."""
         tile = self.get_tile(y, x)
-        return tile != TILE_WALL and tile != TILE_DOOR
+        if tile == TILE_DOOR:
+            return (y, x) in self.open_doors
+        return tile != TILE_WALL
 
     def get_items_at(self, y: int, x: int) -> list[Item]:
         """Get items on the ground at position."""

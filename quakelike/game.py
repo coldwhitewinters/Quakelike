@@ -22,6 +22,7 @@ from quakelike.constants import (
     MAX_VISIBLE_MESSAGES,
     COLOR_WALL, COLOR_FLOOR, COLOR_DOOR, COLOR_SLIPGATE,
     COLOR_ENTRANCE, COLOR_WATER, COLOR_LAVA,
+    DOOR_CLOSE_DELAY,
 )
 from quakelike.entity import Position
 from quakelike.player import Player
@@ -238,6 +239,13 @@ class Game:
                         f'Level up! You are now level {self.player.level}.')
             self._end_turn()
             return
+
+        # Auto-open closed door
+        tile = gmap.get_tile(new_y, new_x)
+        if tile == TILE_DOOR and not gmap.is_open_door(new_y, new_x):
+            gmap.open_door(new_y, new_x, self.turn + 1 + DOOR_CLOSE_DELAY)
+            self.message_log.add('The door opens.')
+            # Fall through: door is now open, is_walkable will return True
 
         # Check walkability
         if not gmap.is_walkable(new_y, new_x):
@@ -747,9 +755,25 @@ class Game:
 
         # Enemy turns
         for enemy in gmap.get_living_enemies():
-            msgs = update_enemy(enemy, self.player, gmap, self.rng)
+            msgs = update_enemy(enemy, self.player, gmap, self.rng,
+                                current_turn=self.turn)
             for m in msgs:
                 self.message_log.add(m)
+
+        # Auto-close expired doors
+        expired = [pos for pos, close_turn in gmap.open_doors.items()
+                   if self.turn >= close_turn]
+        for pos in expired:
+            y, x = pos
+            # Defer close if player is on the tile
+            if y == self.player.pos.y and x == self.player.pos.x:
+                gmap.open_doors[pos] = self.turn + 1
+                continue
+            # Defer close if an enemy is on the tile
+            if gmap.get_enemy_at(y, x) is not None:
+                gmap.open_doors[pos] = self.turn + 1
+                continue
+            gmap.close_door(y, x)
 
         # Check player death
         if not self.player.is_alive:
@@ -877,6 +901,7 @@ class Game:
                             if gmap.slipgate_up_pos else None),
             'entrance': ([gmap.entrance_pos.y, gmap.entrance_pos.x]
                          if gmap.entrance_pos else None),
+            'open_doors': {f'{k[0]},{k[1]}': v for k, v in gmap.open_doors.items()},
         }
 
     def _serialize_enemy(self, e: Enemy) -> dict:
@@ -940,6 +965,11 @@ class Game:
             if map_data['entrance']:
                 gmap.entrance_pos = Position(*map_data['entrance'])
 
+            # Restore open doors
+            for key_str, close_turn in map_data.get('open_doors', {}).items():
+                y, x = map(int, key_str.split(','))
+                gmap.open_doors[(y, x)] = close_turn
+
             self.maps[idx] = gmap
 
         # Restore player
@@ -995,8 +1025,13 @@ class Game:
             for x in range(gmap.width):
                 if (y, x) in gmap.explored:
                     tile = gmap.tiles[y][x]
-                    color = _tile_color(tile)
-                    row.append({'char': tile, 'color': color})
+                    if tile == TILE_DOOR and gmap.is_open_door(y, x):
+                        char = TILE_FLOOR   # show passable opening
+                        color = COLOR_DOOR  # keep door-frame color
+                    else:
+                        char = tile
+                        color = _tile_color(tile)
+                    row.append({'char': char, 'color': color})
                 else:
                     row.append({'char': ' ', 'color': '#000000'})
             visible_tiles.append(row)

@@ -4,7 +4,7 @@ from __future__ import annotations
 import random
 from typing import TYPE_CHECKING
 
-from quakelike.constants import TILE_WATER
+from quakelike.constants import TILE_WATER, TILE_DOOR, DOOR_CLOSE_DELAY
 from quakelike.entity import Position
 from quakelike.enemies import Enemy, AttackType
 from quakelike.combat import enemy_attack
@@ -21,7 +21,7 @@ ALERT_LOS_REQUIRED = True
 
 
 def update_enemy(enemy: Enemy, player: Player, game_map: GameMap,
-                 rng: random.Random) -> list[str]:
+                 rng: random.Random, current_turn: int = 0) -> list[str]:
     """Update a single enemy for one turn.
 
     Returns list of messages generated.
@@ -40,6 +40,10 @@ def update_enemy(enemy: Enemy, player: Player, game_map: GameMap,
     if enemy.move_timer < enemy.enemy_def.speed:
         return []
     enemy.move_timer = 0
+
+    # Track whether the enemy was already alerted before this turn's check.
+    # Door-handling only applies to enemies that were alerted at turn start.
+    was_already_alerted = enemy.alerted
 
     # Check alertness
     dist = enemy.pos.chebyshev_distance(player.pos)
@@ -64,6 +68,14 @@ def update_enemy(enemy: Enemy, player: Player, game_map: GameMap,
             _wander(enemy, game_map, rng)
             return []
 
+    # Already-alerted enemies handle adjacent doors before attacking or moving.
+    # This models Quake behavior: enemies clear doorways to pursue the player.
+    # Enemies that just became alerted this turn act normally (no door priority).
+    if was_already_alerted:
+        door_action = _handle_adjacent_door(enemy, player, game_map, current_turn)
+        if door_action:
+            return messages
+
     # Try to attack first
     attack = enemy.get_best_attack(dist)
     if attack is not None and enemy.can_attack():
@@ -74,9 +86,61 @@ def update_enemy(enemy: Enemy, player: Player, game_map: GameMap,
             return messages
 
     # Move toward player
-    _move_toward_player(enemy, player, game_map, rng)
+    _move_toward_player(enemy, player, game_map, rng, current_turn=current_turn)
 
     return messages
+
+
+def _handle_adjacent_door(enemy: Enemy, player: 'Player', game_map: 'GameMap',
+                          current_turn: int) -> bool:
+    """Check all adjacent tiles for doors; open/traverse them as needed.
+
+    Returns True if a door action was taken (consuming the enemy's turn).
+    Closed doors are opened and the enemy waits; open doors are traversed.
+    Scans in greedy-toward-player order first, then remaining directions.
+    """
+    # Build greedy direction toward player
+    dy = 0
+    dx = 0
+    if player.pos.y < enemy.pos.y:
+        dy = -1
+    elif player.pos.y > enemy.pos.y:
+        dy = 1
+    if player.pos.x < enemy.pos.x:
+        dx = -1
+    elif player.pos.x > enemy.pos.x:
+        dx = 1
+
+    # Order: preferred directions toward player first
+    priority = []
+    if dy != 0 and dx != 0:
+        priority.append((dy, dx))
+    if dy != 0:
+        priority.append((dy, 0))
+    if dx != 0:
+        priority.append((0, dx))
+    # Remaining 8-way directions
+    all_dirs = [(0, 1), (0, -1), (1, 0), (-1, 0),
+                (1, 1), (1, -1), (-1, 1), (-1, -1)]
+    for d in all_dirs:
+        if d not in priority:
+            priority.append(d)
+
+    for my, mx in priority:
+        ny, nx = enemy.pos.y + my, enemy.pos.x + mx
+        if game_map.get_tile(ny, nx) != TILE_DOOR:
+            continue
+        if not game_map.is_open_door(ny, nx):
+            # Closed door: open it and wait this turn
+            game_map.open_door(ny, nx, current_turn + DOOR_CLOSE_DELAY)
+            return True
+        else:
+            # Open door: move through it (if not occupied)
+            if (game_map.get_enemy_at(ny, nx) is None and
+                    not (ny == player.pos.y and nx == player.pos.x)):
+                enemy.pos = Position(ny, nx)
+            return True
+    return False
 
 
 def _wander(enemy: Enemy, game_map: GameMap, rng: random.Random) -> None:
@@ -97,7 +161,8 @@ def _wander(enemy: Enemy, game_map: GameMap, rng: random.Random) -> None:
 
 
 def _move_toward_player(enemy: Enemy, player: Player,
-                        game_map: GameMap, rng: random.Random) -> None:
+                        game_map: GameMap, rng: random.Random,
+                        current_turn: int = 0) -> None:
     """Move enemy toward the player using simple pathfinding."""
     # Simple greedy movement toward player
     dy = 0
@@ -130,6 +195,11 @@ def _move_toward_player(enemy: Enemy, player: Player,
         # Don't walk to player position
         if ny == player.pos.y and nx == player.pos.x:
             continue
+        # Check if target is a closed door — open it and wait one turn
+        tile = game_map.get_tile(ny, nx)
+        if tile == TILE_DOOR and not game_map.is_open_door(ny, nx):
+            game_map.open_door(ny, nx, current_turn + DOOR_CLOSE_DELAY)
+            return  # Enemy waits for the door to open
         if game_map.is_walkable(ny, nx):
             # Water check
             if enemy.enemy_def.avoids_water:
