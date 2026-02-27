@@ -1016,7 +1016,7 @@ class Game:
             targeted_enemy = self.target_list[self.target_cursor]
 
         for enemy in gmap.get_living_enemies():
-            if (enemy.pos.y, enemy.pos.x) in gmap.explored:
+            if gmap.has_line_of_sight(p.pos, enemy.pos):
                 color = enemy.color
                 if enemy is targeted_enemy:
                     color = '#FF0000'  # Highlighted target
