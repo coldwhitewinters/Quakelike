@@ -21,7 +21,7 @@ function initSocket() {
         gameState = state;
         render(state);
         if (state.traveling) {
-            setTimeout(() => sendInput('_'), 100);
+            setTimeout(() => sendInput('_'), 30);
         }
     });
 
