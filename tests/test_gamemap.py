@@ -68,6 +68,13 @@ class TestGameMap:
         gmap.set_tile(9, 5, TILE_ENTRANCE)
         gmap.set_tile(10, 5, TILE_WATER)
         assert gmap.is_walkable(5, 5)
+        # BEHAVIOR CHANGE (auto-doors feature): closed TILE_DOOR is now blocked
+        # by default; it only becomes walkable once opened via open_door().
+        # The old assertion `assert gmap.is_walkable(6, 5)` would pass with the
+        # pre-feature implementation but is incorrect post-feature.
+        assert not gmap.is_walkable(6, 5)
+        # Verify a door becomes walkable after being opened
+        gmap.open_door(6, 5, close_turn=10)
         assert gmap.is_walkable(6, 5)
         assert gmap.is_walkable(7, 5)
         assert gmap.is_walkable(8, 5)
