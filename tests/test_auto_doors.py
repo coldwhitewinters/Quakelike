@@ -557,10 +557,11 @@ class TestEnemyDoorInteraction:
         """Build a game with an alerted enemy one step away from a closed door.
 
         Layout:
-          - 7x7 open floor around (10,10) as usual
+          - 7x7 open floor around (10,10) as usual (rows 7-13, cols 7-13)
           - door placed at (10, 12) — one step east of the enemy start
           - enemy (Grunt, alerted) placed at (10, 11)
-          - player at (10, 8) — west of the door, enemy wants to reach it
+          - player at (10, 13) — east of the door, enemy must open the door
+            to reach the player (door separates enemy from player)
 
         The Grunt speed=1 so it acts every turn.
 
@@ -569,8 +570,9 @@ class TestEnemyDoorInteraction:
         game = _make_game()
         gmap = game.current_map
 
-        # Place player at (10, 8) — door will separate player from enemy
-        game.player.pos = Position(10, 8)
+        # Place player at (10, 13) — east of the door; the door separates
+        # the enemy from the player so the enemy must open it to advance.
+        game.player.pos = Position(10, 13)
 
         # Place door at (10, 12)
         gmap.set_tile(10, 12, TILE_DOOR)
@@ -883,4 +885,385 @@ class TestDoorSerialization:
 
         assert found_value == 77, (
             f"Serialised close_turn for door at (5,5) must be 77, got {found_value}"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Regression Tests — Bug 1: Fast-travel BFS cannot route through closed doors
+# ---------------------------------------------------------------------------
+
+class TestFastTravelDoors:
+    """Regression tests for: _bfs_path prunes closed TILE_DOOR tiles, making
+    fast travel fail whenever the only path to the destination passes through
+    a closed door.
+
+    Root cause (game.py:570): _bfs_path calls gmap.is_walkable(ny, nx) which
+    returns False for closed doors, so they are excluded from BFS exploration.
+    _confirm_fast_travel (lines 624-655) has no door-auto-open logic for path
+    execution.
+
+    All tests in this class are expected to FAIL before the fix is applied.
+    The sanity-check test (test_fast_travel_destination_is_open_door_tile) is
+    expected to PASS both before and after the fix.
+    """
+
+    def _make_corridor_game_with_door(self):
+        """Build a game with a single-tile-wide corridor blocked by a closed door.
+
+        Layout (row 10, columns 5-15):
+          Player at (10, 8). Closed door at (10, 10). Destination (10, 12).
+          All corridor tiles are TILE_FLOOR and explored.
+          The only path from (10, 8) to (10, 12) passes through the door at
+          (10, 10).
+
+        Returns (game, door_pos, dest_pos).
+        """
+        game = Game()
+        game.new_game(seed=42)
+        gmap = game.current_map
+        gmap.enemies.clear()
+
+        # Carve a narrow east-west corridor on row 10, cols 5-15
+        for x in range(5, 16):
+            gmap.set_tile(10, x, TILE_FLOOR)
+            gmap.explored.add((10, x))
+
+        # Place a closed door in the middle of the corridor
+        door_y, door_x = 10, 10
+        gmap.set_tile(door_y, door_x, TILE_DOOR)
+        # Ensure the door is closed (not in open_doors)
+        gmap.open_doors.pop((door_y, door_x), None)
+
+        # Seal all tiles adjacent to the corridor with walls so BFS cannot
+        # route around the door (rows 9 and 11 are walls by default in the
+        # generated map, but we set them explicitly for determinism).
+        for x in range(5, 16):
+            gmap.set_tile(9, x, TILE_WALL)
+            gmap.set_tile(11, x, TILE_WALL)
+            # These wall tiles are NOT in explored — BFS cannot use them.
+
+        game.player.pos = Position(10, 8)
+        return game, (door_y, door_x), (10, 12)
+
+    def test_bfs_path_treats_closed_door_as_passable(self):
+        """_bfs_path must include a closed TILE_DOOR tile when it is the only
+        route from start to destination.
+
+        Currently FAILS: is_walkable returns False for closed doors, so BFS
+        prunes the door tile and returns an empty path.
+
+        After the fix, _bfs_path must treat TILE_DOOR tiles as traversable
+        (regardless of open_doors state) so the path planning layer can
+        decide whether/how to open them.
+        """
+        game, door_pos, dest_pos = self._make_corridor_game_with_door()
+        gmap = game.current_map
+
+        door_y, door_x = door_pos
+        dest_y, dest_x = dest_pos
+
+        # Confirm the door is genuinely closed before calling BFS
+        assert not gmap.is_open_door(door_y, door_x), (
+            "Precondition: door must be closed before calling _bfs_path"
+        )
+
+        start = (game.player.pos.y, game.player.pos.x)
+        end = (dest_y, dest_x)
+
+        path = game._bfs_path(start, end)
+
+        assert len(path) > 0, (
+            "_bfs_path must return a non-empty path when the only route passes "
+            "through a closed TILE_DOOR; got empty list (BFS prunes closed doors)"
+        )
+        assert door_pos in path, (
+            f"_bfs_path path must include the closed door tile {door_pos}; "
+            f"got path: {path}"
+        )
+        assert path[-1] == end, (
+            f"Last element of path must be the destination {end}; got {path[-1]}"
+        )
+
+    def test_fast_travel_opens_door_on_path(self):
+        """Fast travel to a destination reachable only through a closed door
+        must open the door and move the player to the destination.
+
+        Currently FAILS: _bfs_path returns [] because the closed door is not
+        walkable, so _confirm_fast_travel logs 'No path to destination.' and
+        aborts instead of opening the door mid-path.
+
+        After the fix:
+        (a) The player must reach the destination (10, 12).
+        (b) The door at (10, 10) must be open (in gmap.open_doors).
+        (c) The message log must contain 'The door opens.'
+        """
+        game, door_pos, dest_pos = self._make_corridor_game_with_door()
+        gmap = game.current_map
+
+        door_y, door_x = door_pos
+        dest_y, dest_x = dest_pos
+
+        msgs_before = len(game.message_log.get_all())
+
+        # Enter fast travel mode
+        game.handle_input('_')
+        assert game.state.name == 'FAST_TRAVEL', (
+            "Precondition: game must enter FAST_TRAVEL state"
+        )
+
+        # Move cursor east from player (10, 8) to destination (10, 12)
+        # That's 4 presses of 'l'
+        for _ in range(4):
+            game.handle_input('l')
+        assert game.fast_travel_cursor == (dest_y, dest_x), (
+            f"Precondition: cursor must be at {(dest_y, dest_x)}, "
+            f"got {game.fast_travel_cursor}"
+        )
+
+        # Confirm fast travel
+        game.handle_input('_')
+
+        # (a) Player must reach the destination
+        assert game.player.pos == Position(dest_y, dest_x), (
+            f"Player must reach destination {(dest_y, dest_x)} after fast travel "
+            f"through a closed door; player is at "
+            f"({game.player.pos.y}, {game.player.pos.x}). "
+            "Likely cause: _bfs_path returned [] because the door was closed."
+        )
+
+        # (b) The door must have been opened during travel
+        assert gmap.is_open_door(door_y, door_x), (
+            f"Door at {door_pos} must be open after fast travel passed through it"
+        )
+
+        # (c) Message log must contain the door-open message
+        all_msgs = game.message_log.get_all()
+        new_msgs = all_msgs[msgs_before:]
+        assert any('The door opens.' in m for m in new_msgs), (
+            f"Message log must contain 'The door opens.' after fast travel "
+            f"through a closed door; new messages were: {new_msgs}"
+        )
+
+    def test_fast_travel_destination_is_open_door_tile(self):
+        """Fast travel to a tile that IS an open door works correctly.
+
+        This is a sanity-check / regression guard: open doors are walkable, so
+        fast travel to an open door tile must succeed before and after the fix.
+
+        This test is expected to PASS both before and after the fix.
+        """
+        game = _make_game()
+        gmap = game.current_map
+
+        # Place a door one step north of the player and pre-open it
+        door_y, door_x = 9, 10
+        gmap.set_tile(door_y, door_x, TILE_DOOR)
+        gmap.open_door(door_y, door_x, close_turn=game.turn + 50)
+        gmap.explored.add((door_y, door_x))
+
+        assert gmap.is_walkable(door_y, door_x), (
+            "Precondition: an open door must be walkable"
+        )
+
+        # Enter fast travel, move cursor to the open door tile
+        game.handle_input('_')
+        game.handle_input('k')  # cursor to (9, 10)
+        assert game.fast_travel_cursor == (door_y, door_x)
+
+        game.handle_input('_')  # confirm
+
+        assert game.player.pos == Position(door_y, door_x), (
+            "Fast travel to an open door tile must move the player there"
+        )
+
+
+# ---------------------------------------------------------------------------
+# Regression Tests — Bug 2: _handle_adjacent_door scans all 8 directions,
+# can open doors that are not in the movement path
+# ---------------------------------------------------------------------------
+
+class TestHandleAdjacentDoorDirection:
+    """Regression tests for: _handle_adjacent_door appends all 8 directions
+    (ai.py:122-127) after the greedy-toward-player priority entries, so it
+    can open doors that are behind or beside the enemy rather than only doors
+    that block the enemy's path to the player.
+
+    Root cause: the 'remaining 8-way directions' loop adds every direction not
+    already in priority — including directly opposite the player — before any
+    door-opening decision is made.  The first door found in that order is
+    opened, even if it has nothing to do with the path to the player.
+
+    Tests 4 and 5 are expected to FAIL before the fix. Test 6 is a sanity
+    check that PASSES both before and after the fix.
+    """
+
+    def _make_enemy_player_setup(self, enemy_y, enemy_x,
+                                 player_y, player_x,
+                                 door_positions=None):
+        """Build a minimal game with one alerted Grunt and one player.
+
+        All tiles from rows 3-8, cols 3-12 are set to TILE_FLOOR and explored
+        so movement is not blocked by walls, except for any TILE_DOOR tiles
+        placed by the caller via door_positions.
+
+        door_positions: list of (y, x) tuples where TILE_DOOR should be placed.
+
+        Returns (game, enemy).
+        """
+        import random as _random
+        from quakelike.player import Player
+
+        game = Game()
+        game.new_game(seed=99)
+        gmap = game.current_map
+        gmap.enemies.clear()
+
+        # Carve an open floor area: rows 3-8, cols 3-12
+        for y in range(3, 9):
+            for x in range(3, 13):
+                gmap.set_tile(y, x, TILE_FLOOR)
+                gmap.explored.add((y, x))
+
+        # Place closed doors if specified
+        if door_positions:
+            for dy, dx in door_positions:
+                gmap.set_tile(dy, dx, TILE_DOOR)
+                gmap.open_doors.pop((dy, dx), None)  # ensure closed
+
+        # Place player
+        game.player.pos = Position(player_y, player_x)
+
+        # Place alerted Grunt; ensure it was already alerted before this turn
+        enemy = Enemy.from_def(GRUNT, Position(enemy_y, enemy_x))
+        enemy.alerted = True
+        # Reset move_timer so the enemy acts this turn (Grunt speed=1)
+        enemy.move_timer = 0
+        gmap.enemies.append(enemy)
+
+        return game, enemy
+
+    def test_enemy_does_not_open_door_behind_it(self):
+        """An enemy moving east toward the player must NOT open a door to its west.
+
+        Setup:
+          - Enemy at (5, 5), player at (5, 9) — enemy should move east.
+          - Closed door at (5, 4) — directly west/behind the enemy.
+          - No door between enemy and player on the east side.
+
+        After one update_enemy call:
+          - Door at (5, 4) must remain CLOSED.
+          - Enemy must have moved east (away from the door), not stayed put.
+
+        Currently FAILS because _handle_adjacent_door appends (0, -1) (west)
+        to the priority list after the greedy directions and opens the first
+        TILE_DOOR it finds in that scan — which is the door at (5, 4).
+        """
+        import random
+        from quakelike.ai import update_enemy
+
+        game, enemy = self._make_enemy_player_setup(
+            enemy_y=5, enemy_x=5,
+            player_y=5, player_x=9,
+            door_positions=[(5, 4)],  # door behind the enemy (west)
+        )
+        gmap = game.current_map
+
+        rng = random.Random(7)
+        update_enemy(enemy, game.player, gmap, rng, current_turn=game.turn)
+
+        # Door behind the enemy must still be closed
+        assert not gmap.is_open_door(5, 4), (
+            "Enemy must NOT open the door at (5, 4) which is directly behind it "
+            "(west) when the player is to the east at (5, 9). "
+            "_handle_adjacent_door scans all 8 directions and opens the first "
+            "door found, which includes the wrong-direction door."
+        )
+
+        # Enemy must have moved eastward (toward player), not stayed still
+        assert enemy.pos.x > 5, (
+            f"Enemy must move east toward the player after ignoring the west door; "
+            f"enemy x is {enemy.pos.x} (started at 5, player is at x=9)"
+        )
+
+    def test_enemy_does_not_open_irrelevant_side_door(self):
+        """An enemy moving east toward the player must NOT open a door to its north.
+
+        Setup:
+          - Enemy at (5, 5), player at (5, 9) — enemy should move east.
+          - Closed door at (4, 5) — directly north (perpendicular to movement).
+          - No door between enemy and player.
+
+        After one update_enemy call:
+          - Door at (4, 5) must remain CLOSED.
+          - Enemy must have moved east.
+
+        Currently FAILS because _handle_adjacent_door scans all 8 directions,
+        finds the door at (4, 5) in the remaining-directions list, and opens it,
+        wasting the enemy's turn.
+        """
+        import random
+        from quakelike.ai import update_enemy
+
+        game, enemy = self._make_enemy_player_setup(
+            enemy_y=5, enemy_x=5,
+            player_y=5, player_x=9,
+            door_positions=[(4, 5)],  # door perpendicular north of enemy
+        )
+        gmap = game.current_map
+
+        rng = random.Random(13)
+        update_enemy(enemy, game.player, gmap, rng, current_turn=game.turn)
+
+        # Door to the north must still be closed
+        assert not gmap.is_open_door(4, 5), (
+            "Enemy must NOT open the door at (4, 5) which is north (perpendicular) "
+            "when the player is due east at (5, 9). "
+            "_handle_adjacent_door's all-8-directions scan finds this door and "
+            "wastes the enemy's turn opening it."
+        )
+
+        # Enemy must have moved eastward
+        assert enemy.pos.x > 5, (
+            f"Enemy must move east toward the player after ignoring the north door; "
+            f"enemy x is {enemy.pos.x} (started at 5, player is at x=9)"
+        )
+
+    def test_enemy_opens_door_that_is_in_movement_direction(self):
+        """An enemy must open a closed door that directly blocks its path to the player.
+
+        Setup:
+          - Enemy at (5, 5), player at (5, 9).
+          - Closed door at (5, 6) — directly between enemy and player (one step east).
+
+        After one update_enemy call:
+          - Door at (5, 6) must be OPEN (enemy opened it to pursue the player).
+          - Enemy must still be at (5, 5) — it waits one turn after opening.
+
+        This test is a sanity check and is expected to PASS both before and
+        after the fix: the greedy priority list puts (0, +1) (east) first, so
+        the correct door is always opened in the current code too.
+        """
+        import random
+        from quakelike.ai import update_enemy
+
+        game, enemy = self._make_enemy_player_setup(
+            enemy_y=5, enemy_x=5,
+            player_y=5, player_x=9,
+            door_positions=[(5, 6)],  # door directly on the path east
+        )
+        gmap = game.current_map
+
+        rng = random.Random(3)
+        update_enemy(enemy, game.player, gmap, rng, current_turn=game.turn)
+
+        # Door on the path must be opened
+        assert gmap.is_open_door(5, 6), (
+            "Enemy must open the door at (5, 6) which is directly on its path "
+            "east toward the player at (5, 9)"
+        )
+
+        # Enemy must wait at its current position after opening the door
+        assert enemy.pos == Position(5, 5), (
+            f"Enemy must stay at (5, 5) on the turn it opens the door; "
+            f"got {(enemy.pos.y, enemy.pos.x)}"
         )

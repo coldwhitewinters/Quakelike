@@ -567,7 +567,9 @@ class Game:
                 neighbor = (ny, nx)
                 if neighbor in came_from:
                     continue
-                if not gmap.is_walkable(ny, nx):
+                # Treat closed doors as passable for path planning;
+                # _confirm_fast_travel will open them during execution.
+                if not gmap.is_walkable(ny, nx) and gmap.get_tile(ny, nx) != TILE_DOOR:
                     continue
                 if neighbor not in gmap.explored:
                     continue
@@ -627,12 +629,16 @@ class Game:
             if enemy is not None and enemy.is_alive:
                 self.message_log.add('An enemy blocks the path.')
                 break
+            # Auto-open closed doors encountered on the path
+            tile = gmap.get_tile(ey, ex)
+            if tile == TILE_DOOR and not gmap.is_open_door(ey, ex):
+                gmap.open_door(ey, ex, self.turn + DOOR_CLOSE_DELAY)
+                self.message_log.add('The door opens.')
             # Move player
             self.player.pos.y = ey
             self.player.pos.x = ex
             frames.append([ey, ex])
             # Environmental effects
-            tile = gmap.get_tile(ey, ex)
             if tile == TILE_LAVA and self.player.biosuit_turns <= 0:
                 dmg = self.player.take_damage(10)
                 self.message_log.add(f'The lava burns you for {dmg} damage!')

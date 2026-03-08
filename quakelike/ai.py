@@ -93,11 +93,18 @@ def update_enemy(enemy: Enemy, player: Player, game_map: GameMap,
 
 def _handle_adjacent_door(enemy: Enemy, player: 'Player', game_map: 'GameMap',
                           current_turn: int) -> bool:
-    """Check all adjacent tiles for doors; open/traverse them as needed.
+    """Move or open doors along the greedy-toward-player direction.
 
-    Returns True if a door action was taken (consuming the enemy's turn).
-    Closed doors are opened and the enemy waits; open doors are traversed.
-    Scans in greedy-toward-player order first, then remaining directions.
+    For already-alerted enemies this function is the primary movement handler.
+    It scans only greedy directions (no behind/side tiles) to avoid wasting
+    turns on doors that are not in the movement path.
+
+    Returns True if an action was taken (consuming the enemy's turn):
+      - Closed door in path → open it and wait one turn.
+      - Open door or plain walkable tile in path → move through it.
+      - No usable tile found → return False (caller may try attack/fallback).
+
+    _move_toward_player handles door-opening for newly-alerted enemies.
     """
     # Build greedy direction toward player
     dy = 0
@@ -111,7 +118,9 @@ def _handle_adjacent_door(enemy: Enemy, player: 'Player', game_map: 'GameMap',
     elif player.pos.x > enemy.pos.x:
         dx = 1
 
-    # Order: preferred directions toward player first
+    # Only scan greedy directions toward the player (at most 3 entries).
+    # This ensures enemies open only doors that are actually in their path,
+    # not doors behind or beside them.
     priority = []
     if dy != 0 and dx != 0:
         priority.append((dy, dx))
@@ -119,27 +128,27 @@ def _handle_adjacent_door(enemy: Enemy, player: 'Player', game_map: 'GameMap',
         priority.append((dy, 0))
     if dx != 0:
         priority.append((0, dx))
-    # Remaining 8-way directions
-    all_dirs = [(0, 1), (0, -1), (1, 0), (-1, 0),
-                (1, 1), (1, -1), (-1, 1), (-1, -1)]
-    for d in all_dirs:
-        if d not in priority:
-            priority.append(d)
 
     for my, mx in priority:
         ny, nx = enemy.pos.y + my, enemy.pos.x + mx
-        if game_map.get_tile(ny, nx) != TILE_DOOR:
-            continue
-        if not game_map.is_open_door(ny, nx):
-            # Closed door: open it and wait this turn
-            game_map.open_door(ny, nx, current_turn + DOOR_CLOSE_DELAY)
-            return True
-        else:
-            # Open door: move through it (if not occupied)
+        tile = game_map.get_tile(ny, nx)
+        if tile == TILE_DOOR:
+            if not game_map.is_open_door(ny, nx):
+                # Closed door: open it and wait this turn
+                game_map.open_door(ny, nx, current_turn + DOOR_CLOSE_DELAY)
+                return True
+            else:
+                # Open door: move through it (if not occupied)
+                if (game_map.get_enemy_at(ny, nx) is None and
+                        not (ny == player.pos.y and nx == player.pos.x)):
+                    enemy.pos = Position(ny, nx)
+                return True
+        elif game_map.is_walkable(ny, nx):
+            # Plain walkable tile: move if not occupied by another enemy or player
             if (game_map.get_enemy_at(ny, nx) is None and
                     not (ny == player.pos.y and nx == player.pos.x)):
                 enemy.pos = Position(ny, nx)
-            return True
+                return True
     return False
 
 
@@ -195,7 +204,8 @@ def _move_toward_player(enemy: Enemy, player: Player,
         # Don't walk to player position
         if ny == player.pos.y and nx == player.pos.x:
             continue
-        # Check if target is a closed door — open it and wait one turn
+        # Fallback door-open for newly-alerted enemies: _handle_adjacent_door
+        # is skipped when was_already_alerted is False, so we handle doors here.
         tile = game_map.get_tile(ny, nx)
         if tile == TILE_DOOR and not game_map.is_open_door(ny, nx):
             game_map.open_door(ny, nx, current_turn + DOOR_CLOSE_DELAY)
