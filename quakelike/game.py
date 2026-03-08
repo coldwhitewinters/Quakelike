@@ -541,7 +541,10 @@ class Game:
         return self.get_render_state()
 
     def _bfs_path(self, start: tuple, end: tuple) -> list:
-        """Compute a BFS path from start to end through explored walkable tiles.
+        """Compute a BFS path from start to end through explored, passable tiles.
+
+        Closed door tiles (TILE_DOOR) are treated as passable for path-planning
+        purposes; _confirm_fast_travel opens them when the player steps through.
 
         Returns a list of (y, x) positions from start (exclusive) to end
         (inclusive).  Returns an empty list if no path found or start == end.
@@ -589,7 +592,13 @@ class Game:
         return path
 
     def _confirm_fast_travel(self) -> None:
-        """Execute all travel steps to the fast travel cursor position in one call."""
+        """Execute all travel steps to the fast travel cursor position in one call.
+
+        Closed door tiles are valid destinations and are auto-opened when the
+        path passes through them; "The door opens." is logged for each one.
+        Travel halts early if a living enemy blocks a step or enters the player's
+        target list mid-path.
+        """
         cy, cx = self.fast_travel_cursor
         gmap = self.current_map
 
