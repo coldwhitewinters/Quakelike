@@ -596,7 +596,7 @@ class Game:
         if (cy, cx) not in gmap.explored:
             self.message_log.add('You cannot travel to unexplored areas.')
             return
-        if not gmap.is_walkable(cy, cx):
+        if not gmap.is_walkable(cy, cx) and gmap.get_tile(cy, cx) != TILE_DOOR:
             self.message_log.add('You cannot travel there.')
             return
         enemy = gmap.get_enemy_at(cy, cx)

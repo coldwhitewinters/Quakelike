@@ -1152,11 +1152,14 @@ class TestHandleAdjacentDoorDirection:
 
         After one update_enemy call:
           - Door at (5, 4) must remain CLOSED.
-          - Enemy must have moved east (away from the door), not stayed put.
+          - Enemy must have acted meaningfully: moved east OR attacked the player.
+            (The Grunt has a ranged attack with range 12 that fires at distance 4;
+            attacking is correct behaviour and is not a wasted turn.)
 
-        Currently FAILS because _handle_adjacent_door appends (0, -1) (west)
-        to the priority list after the greedy directions and opens the first
-        TILE_DOOR it finds in that scan — which is the door at (5, 4).
+        Previously FAILED because _handle_adjacent_door appended (0, -1) (west)
+        to the priority list after the greedy directions and opened the first
+        TILE_DOOR it found in that scan — which was the door at (5, 4),
+        consuming the enemy's turn doing nothing useful.
         """
         import random
         from quakelike.ai import update_enemy
@@ -1179,10 +1182,13 @@ class TestHandleAdjacentDoorDirection:
             "door found, which includes the wrong-direction door."
         )
 
-        # Enemy must have moved eastward (toward player), not stayed still
-        assert enemy.pos.x > 5, (
-            f"Enemy must move east toward the player after ignoring the west door; "
-            f"enemy x is {enemy.pos.x} (started at 5, player is at x=9)"
+        # Enemy must have acted meaningfully: moved east OR attacked the player.
+        # attack_cooldown > 0 after a ranged attack (Grunt ranged cooldown = 2).
+        acted_meaningfully = enemy.pos.x > 5 or enemy.attack_cooldown > 0
+        assert acted_meaningfully, (
+            f"Enemy must move east or attack after ignoring the west door; "
+            f"enemy x is {enemy.pos.x} (started at 5), "
+            f"attack_cooldown is {enemy.attack_cooldown}"
         )
 
     def test_enemy_does_not_open_irrelevant_side_door(self):
@@ -1195,10 +1201,12 @@ class TestHandleAdjacentDoorDirection:
 
         After one update_enemy call:
           - Door at (4, 5) must remain CLOSED.
-          - Enemy must have moved east.
+          - Enemy must have acted meaningfully: moved east OR attacked the player.
+            (The Grunt has a ranged attack with range 12 that fires at distance 4;
+            attacking is correct behaviour and is not a wasted turn.)
 
-        Currently FAILS because _handle_adjacent_door scans all 8 directions,
-        finds the door at (4, 5) in the remaining-directions list, and opens it,
+        Previously FAILED because _handle_adjacent_door scanned all 8 directions,
+        found the door at (4, 5) in the remaining-directions list, and opened it,
         wasting the enemy's turn.
         """
         import random
@@ -1222,10 +1230,13 @@ class TestHandleAdjacentDoorDirection:
             "wastes the enemy's turn opening it."
         )
 
-        # Enemy must have moved eastward
-        assert enemy.pos.x > 5, (
-            f"Enemy must move east toward the player after ignoring the north door; "
-            f"enemy x is {enemy.pos.x} (started at 5, player is at x=9)"
+        # Enemy must have acted meaningfully: moved east OR attacked the player.
+        # attack_cooldown > 0 after a ranged attack (Grunt ranged cooldown = 2).
+        acted_meaningfully = enemy.pos.x > 5 or enemy.attack_cooldown > 0
+        assert acted_meaningfully, (
+            f"Enemy must move east or attack after ignoring the north door; "
+            f"enemy x is {enemy.pos.x} (started at 5), "
+            f"attack_cooldown is {enemy.attack_cooldown}"
         )
 
     def test_enemy_opens_door_that_is_in_movement_direction(self):

@@ -93,16 +93,21 @@ def update_enemy(enemy: Enemy, player: Player, game_map: GameMap,
 
 def _handle_adjacent_door(enemy: Enemy, player: 'Player', game_map: 'GameMap',
                           current_turn: int) -> bool:
-    """Move or open doors along the greedy-toward-player direction.
+    """Open or traverse door tiles along the greedy-toward-player direction.
 
-    For already-alerted enemies this function is the primary movement handler.
-    It scans only greedy directions (no behind/side tiles) to avoid wasting
-    turns on doors that are not in the movement path.
+    Scans only greedy directions (no behind/side tiles) to avoid wasting turns
+    on doors that are not in the movement path. Only handles TILE_DOOR tiles.
 
     Returns True if an action was taken (consuming the enemy's turn):
       - Closed door in path → open it and wait one turn.
-      - Open door or plain walkable tile in path → move through it.
-      - No usable tile found → return False (caller may try attack/fallback).
+      - Open door in path → move through it (if not occupied).
+      - No door tile found → return False so the caller can try attack/move.
+
+    Plain walkable tile movement is intentionally NOT handled here because this
+    function is called BEFORE the attack check in update_enemy. Handling
+    walkable tiles here would cause enemies in attack range to sidestep instead
+    of attacking. Walkable-tile movement is handled by _move_toward_player,
+    which runs after the attack check.
 
     _move_toward_player handles door-opening for newly-alerted enemies.
     """
@@ -138,17 +143,13 @@ def _handle_adjacent_door(enemy: Enemy, player: 'Player', game_map: 'GameMap',
                 game_map.open_door(ny, nx, current_turn + DOOR_CLOSE_DELAY)
                 return True
             else:
-                # Open door: move through it (if not occupied)
+                # Open door: move through it if not occupied
                 if (game_map.get_enemy_at(ny, nx) is None and
                         not (ny == player.pos.y and nx == player.pos.x)):
                     enemy.pos = Position(ny, nx)
-                return True
-        elif game_map.is_walkable(ny, nx):
-            # Plain walkable tile: move if not occupied by another enemy or player
-            if (game_map.get_enemy_at(ny, nx) is None and
-                    not (ny == player.pos.y and nx == player.pos.x)):
-                enemy.pos = Position(ny, nx)
-                return True
+                    return True
+                # Door is occupied — try the next greedy direction
+                continue
     return False
 
 
