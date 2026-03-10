@@ -1231,13 +1231,10 @@ class Game:
 
         for enemy in gmap.get_living_enemies():
             if gmap.has_line_of_sight(p.pos, enemy.pos):
-                color = enemy.color
+                tile = {'char': enemy.char, 'color': enemy.color}
                 if enemy is targeted_enemy:
-                    color = '#FF0000'  # Highlighted target
-                visible_tiles[enemy.pos.y][enemy.pos.x] = {
-                    'char': enemy.char,
-                    'color': color,
-                }
+                    tile['targeted'] = True
+                visible_tiles[enemy.pos.y][enemy.pos.x] = tile
 
         # Place player
         visible_tiles[p.pos.y][p.pos.x] = {

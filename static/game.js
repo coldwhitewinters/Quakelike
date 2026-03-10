@@ -257,6 +257,8 @@ function renderMap(state) {
             if (tile.cursor) {
                 // Examine cursor: invert colors with a highlight style
                 html += `<span class="tile examine-cursor" style="color:#000;background-color:#FFD700">${escapeHtml(tile.char)}</span>`;
+            } else if (tile.targeted) {
+                html += `<span class="tile" style="color:#000;background-color:#FF0000">${escapeHtml(tile.char)}</span>`;
             } else {
                 html += `<span class="tile" style="color:${tile.color}">${escapeHtml(tile.char)}</span>`;
             }
