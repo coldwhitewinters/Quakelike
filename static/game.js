@@ -5,6 +5,7 @@
 
 let socket = null;
 let gameState = null;
+let currentGameId = null;
 
 // ============================================================
 // CONNECTION
@@ -15,16 +16,39 @@ function initSocket() {
 
     socket.on('connect', () => {
         console.log('Connected to server');
+        socket.emit('list_saves');
     });
 
     socket.on('game_state', (state) => {
         gameState = state;
+        if (state.game_id) {
+            currentGameId = state.game_id;
+        }
+        if (state.goto_menu) {
+            gotoMenu();
+            return;
+        }
         const frames = state.travel_frames;
         if (frames && frames.length > 1) {
             animateTravelFrames(state, frames);
         } else {
             render(state);
         }
+    });
+
+    socket.on('saves_list', (data) => {
+        const saves = data.saves || [];
+        const continueBtn = document.getElementById('continue-btn');
+        if (saves.length > 0) {
+            continueBtn.disabled = false;
+        } else {
+            continueBtn.disabled = true;
+        }
+        populateSavesList(saves);
+    });
+
+    socket.on('goto_menu', () => {
+        gotoMenu();
     });
 
     socket.on('error', (data) => {
@@ -49,8 +73,8 @@ function initSocket() {
 function newGame() {
     if (!socket || !socket.connected) {
         initSocket();
-        // Wait for connection before sending
-        socket.on('connected', () => {
+        // Use once() to avoid accumulating duplicate listeners across calls
+        socket.once('connected', () => {
             socket.emit('new_game');
         });
     } else {
@@ -60,17 +84,68 @@ function newGame() {
     document.getElementById('game-screen').style.display = 'block';
 }
 
-function loadGame() {
+function continueGame() {
     if (!socket || !socket.connected) {
         initSocket();
-        socket.on('connected', () => {
-            socket.emit('load_game');
+        // Use once() to avoid accumulating duplicate listeners across calls
+        socket.once('connected', () => {
+            socket.emit('list_saves');
         });
     } else {
-        socket.emit('load_game');
+        socket.emit('list_saves');
+    }
+    document.getElementById('game-select-overlay').style.display = 'block';
+}
+
+function loadSave(gameId) {
+    document.getElementById('game-select-overlay').style.display = 'none';
+    if (!socket || !socket.connected) {
+        initSocket();
+        // Use once() to avoid accumulating duplicate listeners across calls
+        socket.once('connected', () => {
+            socket.emit('load_game', { game_id: gameId });
+        });
+    } else {
+        socket.emit('load_game', { game_id: gameId });
     }
     document.getElementById('title-screen').style.display = 'none';
     document.getElementById('game-screen').style.display = 'block';
+}
+
+function populateSavesList(saves) {
+    const listEl = document.getElementById('saves-list');
+    if (!listEl) return;
+    if (saves.length === 0) {
+        listEl.innerHTML = '<div style="color:#888; padding:8px;">No saved games found.</div>';
+        return;
+    }
+    let html = '';
+    for (const save of saves) {
+        const date = save.timestamp
+            ? new Date(save.timestamp * 1000).toLocaleString()
+            : 'Unknown date';
+        const displayName = save.display_name || save.id;
+        html += `<div style="display:flex; align-items:center; justify-content:space-between; padding:6px 0; border-bottom:1px solid #333;">`;
+        html += `<div style="color:#ccc; flex:1;">`;
+        html += `<div>${escapeHtml(displayName)}</div>`;
+        html += `<div style="color:#666; font-size:0.85em;">${escapeHtml(date)}</div>`;
+        html += `</div>`;
+        html += `<button onclick="loadSave('${escapeHtml(save.id)}')" style="margin-left:10px; color:#0f0;">Load</button>`;
+        html += `</div>`;
+    }
+    listEl.innerHTML = html;
+}
+
+function gotoMenu() {
+    gameState = null;
+    currentGameId = null;
+    document.getElementById('game-screen').style.display = 'none';
+    document.getElementById('title-screen').style.display = 'block';
+    // Hide any open overlays from the game screen
+    document.getElementById('quit-confirm-overlay').style.display = 'none';
+    if (socket && socket.connected) {
+        socket.emit('list_saves');
+    }
 }
 
 function sendInput(key) {
@@ -105,6 +180,11 @@ document.addEventListener('keydown', (e) => {
 
     if (gameKeys.includes(key)) {
         e.preventDefault();
+        // Intercept Q to show quit confirmation instead of sending to server
+        if (key === 'Q') {
+            document.getElementById('quit-confirm-overlay').style.display = 'block';
+            return;
+        }
         // Map Enter to Return for consistency
         if (key === 'Enter') key = 'Return';
         sendInput(key);
@@ -458,4 +538,17 @@ function hideConnectionStatus() {
 
 window.addEventListener('load', () => {
     initSocket();
+
+    document.getElementById('close-game-select').onclick = function() {
+        document.getElementById('game-select-overlay').style.display = 'none';
+    };
+
+    document.getElementById('confirm-quit-yes').onclick = function() {
+        document.getElementById('quit-confirm-overlay').style.display = 'none';
+        socket.emit('quit_without_save');
+    };
+
+    document.getElementById('confirm-quit-no').onclick = function() {
+        document.getElementById('quit-confirm-overlay').style.display = 'none';
+    };
 });
