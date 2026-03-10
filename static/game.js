@@ -236,6 +236,8 @@ function animateTravelFrames(finalState, frames) {
     nextFrame();
 }
 
+// Animates a projectile tile-by-tile along a pre-computed Bresenham path (30ms per tile),
+// then renders the final post-shot game state once the animation completes.
 function animateProjectileFrames(state, frames, char, color) {
     // Make a mutable deep copy of the map for animation
     const animMap = state.map.map(row => row.map(cell => Object.assign({}, cell)));

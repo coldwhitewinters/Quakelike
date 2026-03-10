@@ -142,7 +142,7 @@ Items that can be activated are consumed after activation.
 
 With the target key one can cycle through the enemies on the player's line of sight
 
-With the fire key one can fire the currently equipped weapon to the targeted enemy, or straight ahead if nothing is targetted.
+With the fire key one can fire the currently equipped weapon to the targeted enemy, or straight ahead if nothing is targetted. When firing a ranged weapon at a target, a `*` projectile character animates tile-by-tile along the line of fire before the hit result is displayed.
 
 One can always perform melee attacks on enemies that are standing next to the player by walking towards them. The damage should be the same as the one dealt when using the axe in the original game.
 

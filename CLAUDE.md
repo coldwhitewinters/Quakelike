@@ -62,6 +62,11 @@ Browser ↔ Flask-SocketIO (WebSocket) ↔ `Game` object (per session)
 ### Turn Loop
 `_end_turn()` in `game.py` runs after every player action: enemy AI updates (`update_enemy` for each living enemy), player death check, powerup ticking, target list refresh.
 
+### Frontend Animations
+`get_render_state()` exposes two frame-list fields that the frontend animates before showing the final state (30 ms per tile):
+- `travel_frames` — step positions for fast-travel autopath (rendered by `animateTravelFrames()`)
+- `projectile_frames` — tile positions along the Bresenham line from player to target, rendered by `animateProjectileFrames()` using `projectile_char` (`*`) and `projectile_color` (yellow `#FFFF00`)
+
 ### Map Generation
 `generate_map(level, rng)` in `gamemap.py`: random rooms → L-shaped corridors → doors → slipgates/entrance → environment features (water/lava) → item placement → enemy placement. Maps are generated lazily on first visit and cached in `Game.maps`. RNG is seeded per game for reproducibility.
 
