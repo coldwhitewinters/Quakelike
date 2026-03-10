@@ -841,25 +841,6 @@ class Game:
 
             self._end_turn()
 
-    def _fire_at_target(self) -> None:
-        """Fire at the currently targeted enemy."""
-        if not self.target_list or self.target_cursor < 0:
-            return
-
-        target = self.target_list[self.target_cursor]
-        if not target.is_alive:
-            self.message_log.add('Target is already dead.')
-            return
-
-        success, msg, extra = player_fire_weapon(
-            self.player, target, self.current_map, self.rng)
-        self.message_log.add(msg)
-        for m in extra:
-            self.message_log.add(m)
-
-        if success:
-            self._end_turn()
-
     def _swap_weapon(self) -> None:
         """Swap to previously equipped weapon."""
         if self.player.swap_weapon():
