@@ -26,6 +26,7 @@ from quakelike.constants import (
     COLOR_WALL, COLOR_FLOOR, COLOR_DOOR, COLOR_SLIPGATE,
     COLOR_ENTRANCE, COLOR_WATER, COLOR_LAVA,
     DOOR_CLOSE_DELAY,
+    CHAR_PROJECTILE, COLOR_PROJECTILE,
 )
 from quakelike.entity import Position
 from quakelike.player import Player
@@ -189,6 +190,9 @@ class Game:
     travel_path: list = field(default_factory=list)
     _travel_frames: list = field(default_factory=list)
 
+    # Projectile animation state (populated on each successful ranged fire)
+    _projectile_frames: list = field(default_factory=list)
+
     # UI state
     inventory_cursor: int = 0
     loot_cursor: int = 0
@@ -258,7 +262,8 @@ class Game:
 
     def _handle_playing_input(self, key: str) -> dict:
         """Handle input during normal play."""
-        self._travel_frames = []  # clear stale animation data from previous travel
+        self._travel_frames = []      # clear stale animation data from previous travel
+        self._projectile_frames = []  # clear stale projectile animation from previous fire
         if key in DIRECTIONS:
             self._move_player(key)
         elif key == KEY_SLIPGATE_DOWN:
@@ -821,6 +826,19 @@ class Game:
             self.message_log.add(m)
 
         if success:
+            # Populate projectile animation path for ranged attacks with a target.
+            # Only ranged weapons have a distinct target position to trace toward.
+            if target is not None:
+                weapon = self.player.equipped_weapon
+                is_ranged = (weapon is not None and
+                             weapon.item_def.weapon_range > 1)
+                if is_ranged:
+                    path = self.current_map.get_line(self.player.pos, target.pos)
+                    # path[0] is the player's own tile; skip it
+                    self._projectile_frames = [
+                        [pos.y, pos.x] for pos in path[1:]
+                    ]
+
             self._end_turn()
 
     def _fire_at_target(self) -> None:
@@ -1358,6 +1376,9 @@ class Game:
             'traveling': False,
             'player_pos': [self.player.pos.y, self.player.pos.x],
             'travel_frames': list(self._travel_frames),
+            'projectile_frames': list(self._projectile_frames),
+            'projectile_char': CHAR_PROJECTILE,
+            'projectile_color': COLOR_PROJECTILE,
             'show_help': show_help,
             'help_content': help_content,
             'quit': self.quit,

@@ -29,6 +29,7 @@ TILE_LAVA = '='
 
 # Entity characters
 CHAR_PLAYER = '@'
+CHAR_PROJECTILE = '*'
 
 # Colors (ANSI-like color names for frontend)
 COLOR_WALL = '#8B7355'
@@ -39,6 +40,7 @@ COLOR_ENTRANCE = '#FFD700'
 COLOR_WATER = '#4169E1'
 COLOR_LAVA = '#FF4500'
 COLOR_PLAYER = '#FFFFFF'
+COLOR_PROJECTILE = '#FFFF00'
 
 # Direction vectors (y, x)
 DIRECTIONS = {
