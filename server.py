@@ -74,14 +74,33 @@ def on_new_game(data=None):
 
 
 @socketio.on('load_game')
-def on_load_game():
+def on_load_game(data=None):
     sid = request.sid
     game = get_game(sid)
-    if game.load_game():
+    game_id = data.get('game_id') if isinstance(data, dict) else None
+    if game.load_game(game_id=game_id):
         state = game.get_render_state()
         emit('game_state', state)
     else:
         emit('error', {'message': 'No save game found.'})
+
+
+@socketio.on('list_saves')
+def on_list_saves():
+    from quakelike.game import list_saves
+    saves = list_saves()
+    emit('saves_list', {'saves': saves})
+
+
+@socketio.on('quit_without_save')
+def on_quit_without_save():
+    sid = request.sid
+    game = games.get(sid)
+    if game:
+        game.quit_without_save()
+        games.pop(sid, None)
+        last_activity.pop(sid, None)
+    emit('goto_menu', {})
 
 
 @socketio.on('input')
@@ -101,7 +120,12 @@ def on_input(data):
         return
 
     state = game.handle_input(key)
-    emit('game_state', state)
+    if state.get('goto_menu'):
+        games.pop(sid, None)
+        last_activity.pop(sid, None)
+        emit('goto_menu', {})
+    else:
+        emit('game_state', state)
 
 
 if __name__ == '__main__':
