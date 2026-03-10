@@ -73,8 +73,8 @@ function initSocket() {
 function newGame() {
     if (!socket || !socket.connected) {
         initSocket();
-        // Wait for connection before sending
-        socket.on('connected', () => {
+        // Use once() to avoid accumulating duplicate listeners across calls
+        socket.once('connected', () => {
             socket.emit('new_game');
         });
     } else {
@@ -84,14 +84,11 @@ function newGame() {
     document.getElementById('game-screen').style.display = 'block';
 }
 
-function loadGame() {
-    continueGame();
-}
-
 function continueGame() {
     if (!socket || !socket.connected) {
         initSocket();
-        socket.on('connected', () => {
+        // Use once() to avoid accumulating duplicate listeners across calls
+        socket.once('connected', () => {
             socket.emit('list_saves');
         });
     } else {
@@ -104,7 +101,8 @@ function loadSave(gameId) {
     document.getElementById('game-select-overlay').style.display = 'none';
     if (!socket || !socket.connected) {
         initSocket();
-        socket.on('connected', () => {
+        // Use once() to avoid accumulating duplicate listeners across calls
+        socket.once('connected', () => {
             socket.emit('load_game', { game_id: gameId });
         });
     } else {

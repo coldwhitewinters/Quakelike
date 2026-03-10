@@ -4,6 +4,8 @@ from __future__ import annotations
 import json
 import os
 import random
+import re
+import time
 import uuid
 from collections import deque
 from dataclasses import dataclass, field
@@ -80,6 +82,16 @@ HELP_CONTENT = [
 
 SAVES_DIR = 'saves'
 
+# Compiled regex for validating game_id values — must be a canonical UUID
+_UUID_RE = re.compile(
+    r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+)
+
+
+def _validate_game_id(game_id: str) -> bool:
+    """Return True if *game_id* is a valid lowercase UUID, False otherwise."""
+    return bool(_UUID_RE.match(game_id))
+
 
 def list_saves(saves_dir: str = SAVES_DIR) -> list:
     """Scan *saves_dir* for save files and return metadata for each.
@@ -100,6 +112,10 @@ def list_saves(saves_dir: str = SAVES_DIR) -> list:
             with open(filepath, 'r') as f:
                 data = json.load(f)
             game_id = data['game_id']
+            # Skip entries whose game_id is not a valid UUID — this prevents
+            # a crafted save file from injecting a traversal path as an ID.
+            if not isinstance(game_id, str) or not _validate_game_id(game_id):
+                continue
             player_data = data.get('player', {})
             player_level = player_data.get('level', 1)
             map_idx = data.get('current_map_idx', 0)
@@ -888,7 +904,11 @@ class Game:
 
         When SAVES_DIR is the default 'saves' directory, also removes the
         legacy ``saves/savegame.json`` file (best-effort; never raises).
+
+        Does nothing if ``self.game_id`` does not pass UUID validation.
         """
+        if not _validate_game_id(self.game_id):
+            return
         save_path = os.path.join(SAVES_DIR, f'game_{self.game_id}.json')
         try:
             os.remove(save_path)
@@ -920,8 +940,13 @@ class Game:
         If *game_id* is provided, loads from ``SAVES_DIR/game_{game_id}.json``.
         If omitted, falls back to the legacy ``saves/savegame.json`` path for
         backward compatibility with old save files and tests.
+
+        Returns False immediately if *game_id* is provided but fails UUID
+        validation, preventing path-traversal attacks.
         """
         if game_id is not None:
+            if not _validate_game_id(game_id):
+                return False
             save_path = os.path.join(SAVES_DIR, f'game_{game_id}.json')
         else:
             save_path = os.path.join('saves', 'savegame.json')
@@ -962,7 +987,6 @@ class Game:
 
     def _serialize(self) -> dict:
         """Serialize game state to dict."""
-        import time
         maps_data = {}
         for idx, gmap in self.maps.items():
             maps_data[str(idx)] = self._serialize_map(gmap)
@@ -1279,6 +1303,7 @@ class Game:
         help_content = HELP_CONTENT if show_help else []
 
         return {
+            'game_id': self.game_id,
             'state': self.state.name,
             'map': visible_tiles,
             'map_width': gmap.width,

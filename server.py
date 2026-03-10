@@ -8,7 +8,7 @@ import webbrowser
 from flask import Flask, render_template, send_from_directory, request
 from flask_socketio import SocketIO, emit
 
-from quakelike.game import Game
+from quakelike.game import Game, _validate_game_id
 
 app = Flask(__name__, static_folder='static', template_folder='static')
 cors_origins = os.getenv('CORS_ORIGINS', 'http://localhost:5000')
@@ -78,6 +78,11 @@ def on_load_game(data=None):
     sid = request.sid
     game = get_game(sid)
     game_id = data.get('game_id') if isinstance(data, dict) else None
+    # Reject non-UUID game_id values before passing to load_game() to prevent
+    # path-traversal attacks from a malicious client.
+    if game_id is not None and not _validate_game_id(game_id):
+        emit('error', {'message': 'Invalid game ID.'})
+        return
     if game.load_game(game_id=game_id):
         state = game.get_render_state()
         emit('game_state', state)
