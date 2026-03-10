@@ -28,9 +28,12 @@ function initSocket() {
             gotoMenu();
             return;
         }
-        const frames = state.travel_frames;
-        if (frames && frames.length > 1) {
-            animateTravelFrames(state, frames);
+        const projectileFrames = state.projectile_frames || [];
+        const travelFrames = state.travel_frames || [];
+        if (projectileFrames.length > 0) {
+            animateProjectileFrames(state, projectileFrames, state.projectile_char, state.projectile_color);
+        } else if (travelFrames.length > 1) {
+            animateTravelFrames(state, travelFrames);
         } else {
             render(state);
         }
@@ -228,6 +231,34 @@ function animateTravelFrames(finalState, frames) {
 
         frameIndex++;
         setTimeout(nextFrame, 30);
+    }
+
+    nextFrame();
+}
+
+// Animates a projectile tile-by-tile along a pre-computed Bresenham path (30ms per tile),
+// then renders the final post-shot game state once the animation completes.
+function animateProjectileFrames(state, frames, char, color) {
+    // Make a mutable deep copy of the map for animation
+    const animMap = state.map.map(row => row.map(cell => Object.assign({}, cell)));
+
+    let i = 0;
+
+    function nextFrame() {
+        // Restore previous frame position to its original tile from the final state
+        if (i > 0) {
+            const [py, px] = frames[i - 1];
+            animMap[py][px] = Object.assign({}, state.map[py][px]);
+        }
+        if (i < frames.length) {
+            const [fy, fx] = frames[i];
+            animMap[fy][fx] = { char: char, color: color };
+            renderMap(Object.assign({}, state, { map: animMap }));
+            i++;
+            setTimeout(nextFrame, 30);
+        } else {
+            render(state);
+        }
     }
 
     nextFrame();
