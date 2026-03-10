@@ -11,7 +11,7 @@ from flask_socketio import SocketIO, emit
 from quakelike.game import Game, _validate_game_id
 
 app = Flask(__name__, static_folder='static', template_folder='static')
-cors_origins = os.getenv('CORS_ORIGINS', 'http://localhost:5000')
+cors_origins = os.getenv('CORS_ORIGINS', 'http://localhost:8080')
 socketio = SocketIO(app, cors_allowed_origins=cors_origins)
 
 # Session timeout in seconds (1 hour)
@@ -135,5 +135,5 @@ def on_input(data):
 
 if __name__ == '__main__':
     debug = os.getenv('FLASK_DEBUG', 'false').lower() == 'true'
-    threading.Timer(1.0, lambda: webbrowser.open('http://localhost:5000')).start()
-    socketio.run(app, host='0.0.0.0', port=5000, debug=debug)
+    threading.Timer(1.0, lambda: webbrowser.open('http://localhost:8080')).start()
+    socketio.run(app, host='0.0.0.0', port=8080, debug=debug)
