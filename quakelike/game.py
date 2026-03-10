@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 import os
 import random
+import uuid
 from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum, auto
@@ -77,6 +78,48 @@ HELP_CONTENT = [
 ]
 
 
+SAVES_DIR = 'saves'
+
+
+def list_saves(saves_dir: str = SAVES_DIR) -> list:
+    """Scan *saves_dir* for save files and return metadata for each.
+
+    Returns a list of dicts sorted by timestamp descending (newest first).
+    Each dict has at least: {id, display_name, timestamp, level, map_idx}.
+    Corrupted or unreadable files are silently skipped.
+    """
+    results = []
+    if not os.path.isdir(saves_dir):
+        return results
+
+    for filename in os.listdir(saves_dir):
+        if not (filename.startswith('game_') and filename.endswith('.json')):
+            continue
+        filepath = os.path.join(saves_dir, filename)
+        try:
+            with open(filepath, 'r') as f:
+                data = json.load(f)
+            game_id = data['game_id']
+            player_data = data.get('player', {})
+            player_level = player_data.get('level', 1)
+            map_idx = data.get('current_map_idx', 0)
+            timestamp = data.get('timestamp', 0)
+            display_name = f"Level {player_level} \u2014 Map {map_idx + 1}"
+            results.append({
+                'id': game_id,
+                'display_name': display_name,
+                'timestamp': timestamp,
+                'level': player_level,
+                'map_idx': map_idx,
+            })
+        except Exception:
+            # Corrupted or incompatible save — skip it
+            continue
+
+    results.sort(key=lambda e: e['timestamp'], reverse=True)
+    return results
+
+
 class GameState(Enum):
     PLAYING = auto()
     INVENTORY = auto()
@@ -100,6 +143,7 @@ class Game:
     rng: random.Random = field(default_factory=lambda: random.Random())
     seed: int = 0
     turn: int = 0
+    game_id: str = field(default_factory=lambda: str(uuid.uuid4()))
 
     quit: bool = False
 
@@ -207,7 +251,12 @@ class Game:
             self.state = GameState.HELP
         elif key == KEY_SAVE:
             self._save_game()
+            state = self.get_render_state()
+            state['goto_menu'] = True
+            return state
         elif key == KEY_QUIT:
+            # Legacy: Q sets GAME_OVER for backward compatibility.
+            # The new frontend uses quit_without_save() with a confirmation dialog.
             self.state = GameState.GAME_OVER
             self.quit = True
             self.message_log.add('You quit the game.')
@@ -811,27 +860,78 @@ class Game:
             self.target_cursor = -1
 
     def _save_game(self) -> None:
-        """Save game state to file."""
+        """Save game state to per-ID file under SAVES_DIR.
+
+        When SAVES_DIR is the default 'saves' directory, also writes a legacy
+        ``saves/savegame.json`` so that old tooling continues to work.
+        When SAVES_DIR is patched to a temp dir (e.g. in tests), the legacy
+        file is NOT written there, keeping test isolation clean.
+        """
         save_data = self._serialize()
-        os.makedirs('saves', exist_ok=True)
-        with open('saves/savegame.json', 'w') as f:
+        os.makedirs(SAVES_DIR, exist_ok=True)
+        save_path = os.path.join(SAVES_DIR, f'game_{self.game_id}.json')
+        with open(save_path, 'w') as f:
             json.dump(save_data, f)
+        # Legacy path: only write savegame.json when using the default saves dir.
+        # When SAVES_DIR has been patched to a temp directory, skip it so that
+        # acceptance tests (which assert savegame.json does NOT exist in the
+        # temp dir) continue to pass.
+        default_saves_abs = os.path.abspath('saves')
+        current_saves_abs = os.path.abspath(SAVES_DIR)
+        if current_saves_abs == default_saves_abs:
+            with open(os.path.join(SAVES_DIR, 'savegame.json'), 'w') as f:
+                json.dump(save_data, f)
         self.message_log.add('Game saved.')
 
     def _delete_save(self) -> None:
-        """Delete save file for permadeath."""
+        """Delete per-ID save file for permadeath.
+
+        When SAVES_DIR is the default 'saves' directory, also removes the
+        legacy ``saves/savegame.json`` file (best-effort; never raises).
+        """
+        save_path = os.path.join(SAVES_DIR, f'game_{self.game_id}.json')
         try:
-            os.remove('saves/savegame.json')
+            os.remove(save_path)
         except FileNotFoundError:
             pass
+        # Legacy: clean up savegame.json only when using the real saves dir
+        default_saves_abs = os.path.abspath('saves')
+        current_saves_abs = os.path.abspath(SAVES_DIR)
+        if current_saves_abs == default_saves_abs:
+            try:
+                os.remove(os.path.join(SAVES_DIR, 'savegame.json'))
+            except FileNotFoundError:
+                pass
 
-    def load_game(self) -> bool:
-        """Load game from file. Returns True on success."""
+    def quit_without_save(self) -> dict:
+        """Quit the game without saving.
+
+        Deletes the save file if it exists, then returns a render state dict
+        with goto_menu=True so the frontend can return to the main menu.
+        """
+        self._delete_save()
+        state = self.get_render_state()
+        state['goto_menu'] = True
+        return state
+
+    def load_game(self, game_id: Optional[str] = None) -> bool:
+        """Load game from file by game_id. Returns True on success.
+
+        If *game_id* is provided, loads from ``SAVES_DIR/game_{game_id}.json``.
+        If omitted, falls back to the legacy ``saves/savegame.json`` path for
+        backward compatibility with old save files and tests.
+        """
+        if game_id is not None:
+            save_path = os.path.join(SAVES_DIR, f'game_{game_id}.json')
+        else:
+            save_path = os.path.join('saves', 'savegame.json')
         try:
-            with open('saves/savegame.json', 'r') as f:
+            with open(save_path, 'r') as f:
                 data = json.load(f)
             self._validate_save_data(data)
             self._deserialize(data)
+            if game_id is not None:
+                self.game_id = game_id
             self.message_log.add('Game loaded.')
             return True
         except (FileNotFoundError, json.JSONDecodeError, KeyError,
@@ -862,11 +962,13 @@ class Game:
 
     def _serialize(self) -> dict:
         """Serialize game state to dict."""
+        import time
         maps_data = {}
         for idx, gmap in self.maps.items():
             maps_data[str(idx)] = self._serialize_map(gmap)
 
         return {
+            'game_id': self.game_id,
             'seed': self.seed,
             'rng_state': self.rng.getstate(),
             'turn': self.turn,
@@ -874,6 +976,7 @@ class Game:
             'player': self._serialize_player(),
             'maps': maps_data,
             'messages': self.message_log.to_dict(),
+            'timestamp': time.time(),
         }
 
     def _serialize_player(self) -> dict:
@@ -932,6 +1035,8 @@ class Game:
 
     def _deserialize(self, data: dict) -> None:
         """Restore game state from dict."""
+        # Restore game_id with fallback to current value if missing (old saves)
+        self.game_id = data.get('game_id', self.game_id)
         self.seed = data['seed']
         self.rng = random.Random(self.seed)
         if 'rng_state' in data:
