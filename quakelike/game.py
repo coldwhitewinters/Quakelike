@@ -96,9 +96,31 @@ def _validate_game_id(game_id: str) -> bool:
 def list_saves(saves_dir: str = SAVES_DIR) -> list:
     """Scan *saves_dir* for save files and return metadata for each.
 
-    Returns a list of dicts sorted by timestamp descending (newest first).
-    Each dict has at least: {id, display_name, timestamp, level, map_idx}.
-    Corrupted or unreadable files are silently skipped.
+    Reads every file matching ``game_<uuid>.json`` in *saves_dir*.  Files that
+    cannot be parsed, are missing required keys, or whose embedded ``game_id``
+    fails UUID validation are silently skipped so that a single corrupt file
+    never breaks the save-listing screen.
+
+    Args:
+        saves_dir: Path to the directory that holds save files.  Defaults to
+            the module-level ``SAVES_DIR`` constant (``"saves"``).  Pass a
+            temporary directory in tests to keep isolation clean.
+
+    Returns:
+        A list of dicts, one per valid save file, sorted by ``timestamp``
+        descending (newest first).  Each dict contains:
+
+        - ``id`` (str): The UUID that uniquely identifies this save.  Pass
+          this value to ``Game.load_game(game_id=...)`` to load the save.
+        - ``display_name`` (str): Human-readable label shown in the Continue
+          Game menu, e.g. ``"Level 3 — Map 7"``.
+        - ``timestamp`` (float): Unix timestamp written at save time; used
+          for sorting.
+        - ``level`` (int): Player experience level at save time.
+        - ``map_idx`` (int): Zero-based map index at save time.
+
+        Returns an empty list if *saves_dir* does not exist or contains no
+        valid save files.
     """
     results = []
     if not os.path.isdir(saves_dir):
@@ -924,10 +946,23 @@ class Game:
                 pass
 
     def quit_without_save(self) -> dict:
-        """Quit the game without saving.
+        """Quit the current game without saving, permanently deleting its save file.
 
-        Deletes the save file if it exists, then returns a render state dict
-        with goto_menu=True so the frontend can return to the main menu.
+        This implements the ``Q`` (Shift+Q) quit-without-saving flow.  The
+        frontend is expected to show a confirmation dialog before calling this
+        method; once called there is no undo — the save file for this
+        ``game_id`` is deleted immediately.
+
+        Internally delegates to ``_delete_save()``, which removes
+        ``SAVES_DIR/game_<game_id>.json`` (and the legacy
+        ``saves/savegame.json`` when running against the default saves
+        directory).  If no save file exists yet, the deletion is a no-op.
+
+        Returns:
+            The current render-state dict (as returned by
+            ``get_render_state()``) with an additional ``goto_menu`` key set
+            to ``True``.  The server inspects this flag and emits a
+            ``goto_menu`` socket event so the browser returns to the main menu.
         """
         self._delete_save()
         state = self.get_render_state()

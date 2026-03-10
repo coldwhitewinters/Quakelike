@@ -66,7 +66,15 @@ Browser ↔ Flask-SocketIO (WebSocket) ↔ `Game` object (per session)
 `generate_map(level, rng)` in `gamemap.py`: random rooms → L-shaped corridors → doors → slipgates/entrance → environment features (water/lava) → item placement → enemy placement. Maps are generated lazily on first visit and cached in `Game.maps`. RNG is seeded per game for reproducibility.
 
 ### Save/Load
-JSON-based, saved to `saves/savegame.json`. `Game._serialize()` / `Game._deserialize()` handles full state including RNG state. Permadeath deletes the save on player death.
+JSON-based, multi-save system. Each `Game` instance carries a UUID `game_id` (generated at `new_game` time). Saves are stored as `saves/game_<uuid>.json`.
+
+- `Game._serialize()` / `Game._deserialize()` — full state serialisation including RNG state and `game_id`.
+- `Game._save_game()` — writes `saves/game_<game_id>.json`; also writes the legacy `saves/savegame.json` when using the default saves directory (backward compatibility only).
+- `Game.load_game(game_id=None)` — loads by UUID when `game_id` is supplied; falls back to legacy `saves/savegame.json` when called without arguments. Rejects non-UUID values immediately to prevent path-traversal.
+- `Game.quit_without_save()` — deletes the save file and returns a render-state dict with `goto_menu=True`; used by the `Q` confirmation flow.
+- `list_saves(saves_dir)` — module-level function; scans `saves/` for `game_*.json` files and returns a list of metadata dicts (id, display_name, timestamp, level, map_idx) sorted newest-first. Skips corrupted or invalid files silently.
+- Permadeath deletes only the affected game's `game_<uuid>.json` save.
+- All `game_id` values are validated against a strict UUID regex before any filesystem operation.
 
 ### Tile Characters
 `#` wall · `.` floor · `+` door · `>` slipgate down · `<` slipgate up · `E` entrance · `~` water · `=` lava
@@ -78,7 +86,7 @@ JSON-based, saved to `saves/savegame.json`. `Game._serialize()` / `Game._deseria
 
 ## Development Notes
 
-- Controls are case-sensitive (`S` saves, `Q` quits, lowercase letters move)
+- Controls are case-sensitive (`S` saves the game and returns to the main menu, `Q` quits without saving — the frontend shows a confirmation dialog before the save is deleted, lowercase letters move)
 - The Rune appears on map index 39 (level 40); victory requires returning to map index 0 with the Rune in inventory
 - `specs.md` contains the authoritative design requirements
 - TDD is the intended workflow: write tests first, then implement

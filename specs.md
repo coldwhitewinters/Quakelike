@@ -43,8 +43,20 @@ f: fire weapon
 w: equip previously equipped weapon
 p: open message log
 _: enter fast travel cursor mode (move cursor with movement keys, _ to confirm and auto-walk step-by-step, Escape to cancel; press _ again to advance each step, movement key to interrupt)
-S: save game
-Q: quit game without saving
+S: save game and return to main menu
+Q: quit game without saving (requires confirmation; deletes the current save on confirm)
+
+## Save System
+
+The game supports multiple simultaneous save files so that players can maintain several runs at once.
+
+Each game run is assigned a unique UUID (`game_id`) when it is created. Save files are stored as `saves/game_<uuid>.json` inside the project directory.
+
+The main menu "Continue Game" option lists all available saves by a human-readable label (player level and current map) together with the save timestamp. The player selects a specific save to resume.
+
+Pressing `S` saves the current game to its named save file and returns to the main menu. Pressing `Q` shows a confirmation dialog; on confirm, the save file for the current game is deleted and the player is returned to the main menu.
+
+Death (permadeath) deletes only the save file for the run that ended. Other saves are not affected.
 
 ## Map
 
@@ -142,7 +154,7 @@ Enemies should avoid hitting their comrades during combat.
 
 ## Death
 
-Death is permanent and ends the game. An end game screen should be displayed when over.
+Death is permanent and ends the game. An end game screen should be displayed when over. The save file for that run is automatically deleted on death, enforcing permadeath per-run without affecting any other saved games.
 
 ## Victory 
 
