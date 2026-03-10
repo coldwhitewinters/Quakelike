@@ -1,7 +1,9 @@
 """Flask web server for Quakelike."""
 
 import os
+import threading
 import time
+import webbrowser
 
 from flask import Flask, render_template, send_from_directory, request
 from flask_socketio import SocketIO, emit
@@ -104,4 +106,5 @@ def on_input(data):
 
 if __name__ == '__main__':
     debug = os.getenv('FLASK_DEBUG', 'false').lower() == 'true'
+    threading.Timer(1.0, lambda: webbrowser.open('http://localhost:5000')).start()
     socketio.run(app, host='0.0.0.0', port=5000, debug=debug)
