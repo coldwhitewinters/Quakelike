@@ -849,6 +849,21 @@ class Game:
         else:
             self.message_log.add('No previous weapon to swap to.')
 
+    def _process_enemy_death(self, enemy: 'Enemy', gmap: GameMap) -> None:
+        """Place corpse marker and ammo drop for a freshly killed enemy.
+
+        Called once per dead enemy (guarded by death_processed flag).
+        """
+        if enemy.death_processed:
+            return
+        y, x = enemy.pos.y, enemy.pos.x
+        gmap.add_corpse(y, x, enemy.enemy_def.name)
+        ammo_name = enemy.enemy_def.ammo_drop
+        if ammo_name and ammo_name in ITEM_BY_NAME:
+            item = create_item(ITEM_BY_NAME[ammo_name], quantity=1)
+            gmap.add_item_at(y, x, item)
+        enemy.death_processed = True
+
     def _end_turn(self) -> None:
         """Process end of turn: enemy AI, powerup timers, etc."""
         self.turn += 1
@@ -860,6 +875,11 @@ class Game:
                                 current_turn=self.turn)
             for m in msgs:
                 self.message_log.add(m)
+
+        # Process deaths: place corpse + ammo drop for any newly-dead enemy
+        for enemy in gmap.enemies:
+            if not enemy.is_alive and not enemy.death_processed:
+                self._process_enemy_death(enemy, gmap)
 
         # Auto-close expired doors
         expired = [pos for pos, close_turn in gmap.open_doors.items()
@@ -1071,6 +1091,9 @@ class Game:
                 f'{k[0]},{k[1]}': [i.to_dict() for i in v]
                 for k, v in gmap.items_on_ground.items()
             },
+            'corpses': {
+                f'{k[0]},{k[1]}': v for k, v in gmap.corpses.items()
+            },
             'slipgate_down': ([gmap.slipgate_down_pos.y, gmap.slipgate_down_pos.x]
                               if gmap.slipgate_down_pos else None),
             'slipgate_up': ([gmap.slipgate_up_pos.y, gmap.slipgate_up_pos.x]
@@ -1089,6 +1112,7 @@ class Game:
             'is_alive': e.is_alive,
             'alerted': e.alerted,
             'attack_cooldown': e.attack_cooldown,
+            'death_processed': e.death_processed,
         }
 
     def _deserialize(self, data: dict) -> None:
@@ -1123,6 +1147,7 @@ class Game:
                     enemy.is_alive = edata['is_alive']
                     enemy.alerted = edata['alerted']
                     enemy.attack_cooldown = edata['attack_cooldown']
+                    enemy.death_processed = edata.get('death_processed', False)
                     gmap.enemies.append(enemy)
 
             # Restore items on ground
@@ -1147,6 +1172,11 @@ class Game:
             for key_str, close_turn in map_data.get('open_doors', {}).items():
                 y, x = map(int, key_str.split(','))
                 gmap.open_doors[(y, x)] = close_turn
+
+            # Restore corpses (missing key = old save, default to empty)
+            for key_str, corpse_data in map_data.get('corpses', {}).items():
+                y, x = map(int, key_str.split(','))
+                gmap.corpses[(y, x)] = corpse_data
 
             self.maps[idx] = gmap
 
@@ -1213,6 +1243,11 @@ class Game:
                 else:
                     row.append({'char': ' ', 'color': '#000000'})
             visible_tiles.append(row)
+
+        # Place corpses on map (rendered under items so items appear on top)
+        for (cy, cx), corpse in gmap.corpses.items():
+            if (cy, cx) in gmap.explored:
+                visible_tiles[cy][cx] = {'char': corpse['char'], 'color': corpse['color']}
 
         # Place items on map
         for (iy, ix), items in gmap.items_on_ground.items():

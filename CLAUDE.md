@@ -39,10 +39,10 @@ Browser ↔ Flask-SocketIO (WebSocket) ↔ `Game` object (per session)
 | Module | Responsibility |
 |--------|---------------|
 | `game.py` | `Game` dataclass — state machine, input routing, turn loop, save/load |
-| `gamemap.py` | `GameMap` dataclass, procedural map generation (room-corridor + Bresenham LOS) |
+| `gamemap.py` | `GameMap` dataclass, procedural map generation (room-corridor + Bresenham LOS); `GameMap.corpses` dict and `add_corpse()` method for enemy death markers |
 | `entity.py` | `Entity` and `Position` base classes |
 | `player.py` | `Player` (extends `Entity`) — stats, inventory, powerups, XP/leveling |
-| `enemies.py` | `EnemyDef` dataclass, `Enemy` class, all 12 enemy definitions |
+| `enemies.py` | `EnemyDef` dataclass (incl. `ammo_drop` field), `Enemy` class (incl. `death_processed` flag), all 12 enemy definitions |
 | `items.py` | `ItemDef` dataclass, `Item` class, all Quake items and weapons |
 | `combat.py` | `player_melee_attack`, `player_fire_weapon`, `enemy_attack`, splash damage |
 | `ai.py` | `update_enemy` — enemy alerting, pathfinding, attack logic |
@@ -78,11 +78,12 @@ JSON-based, multi-save system. Each `Game` instance carries a UUID `game_id` (ge
 - `Game.load_game(game_id=None)` — loads by UUID when `game_id` is supplied; falls back to legacy `saves/savegame.json` when called without arguments. Rejects non-UUID values immediately to prevent path-traversal.
 - `Game.quit_without_save()` — deletes the save file and returns a render-state dict with `goto_menu=True`; used by the `Q` confirmation flow.
 - `list_saves(saves_dir)` — module-level function; scans `saves/` for `game_*.json` files and returns a list of metadata dicts (id, display_name, timestamp, level, map_idx) sorted newest-first. Skips corrupted or invalid files silently.
+- Corpses (`GameMap.corpses`) are serialized per-map as part of the map state and restored on load.
 - Permadeath deletes only the affected game's `game_<uuid>.json` save.
 - All `game_id` values are validated against a strict UUID regex before any filesystem operation.
 
 ### Tile Characters
-`#` wall · `.` floor · `+` door · `>` slipgate down · `<` slipgate up · `E` entrance · `~` water · `=` lava
+`#` wall · `.` floor · `+` door · `>` slipgate down · `<` slipgate up · `E` entrance · `~` water · `=` lava · `%` corpse
 
 ### Adding Content
 - **New enemy**: Add `EnemyDef` to `quakelike/enemies.py` and append to `ALL_ENEMIES`
