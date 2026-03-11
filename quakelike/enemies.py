@@ -43,6 +43,7 @@ class EnemyDef:
     avoids_water: bool = True
     description: str = ''
     min_map_level: int = 1  # earliest map this enemy can appear on
+    ammo_drop: Optional[str] = None  # item name to drop on death, or None
 
 
 @dataclass
@@ -54,6 +55,7 @@ class Enemy(Entity):
     move_timer: int = 0
     alerted: bool = False
     xp_value: int = 0
+    death_processed: bool = False  # set True after corpse/ammo drop is placed
 
     @classmethod
     def from_def(cls, enemy_def: EnemyDef, pos: Position) -> Enemy:
@@ -117,6 +119,7 @@ GRUNT = EnemyDef(
     xp_value=15,
     min_map_level=1,
     description='A possessed soldier with a shotgun.',
+    ammo_drop='Shells',
 )
 
 KNIGHT = EnemyDef(
@@ -147,6 +150,7 @@ DEATH_KNIGHT = EnemyDef(
     xp_value=60,
     min_map_level=8,
     description='A hell knight with fire magic and sword.',
+    ammo_drop='Shells',
 )
 
 ROTFISH = EnemyDef(
@@ -210,6 +214,7 @@ OGRE = EnemyDef(
     xp_value=50,
     min_map_level=6,
     description='A hulking brute with chainsaw and grenades.',
+    ammo_drop='Rockets',
 )
 
 FIEND = EnemyDef(

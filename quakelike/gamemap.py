@@ -64,6 +64,7 @@ class GameMap:
     rooms: list[Room] = field(default_factory=list)
     items_on_ground: dict[tuple[int, int], list[Item]] = field(default_factory=dict)
     enemies: list[Enemy] = field(default_factory=list)
+    corpses: dict[tuple[int, int], dict] = field(default_factory=dict)
     slipgate_down_pos: Optional[Position] = None
     slipgate_up_pos: Optional[Position] = None
     entrance_pos: Optional[Position] = None
@@ -151,6 +152,10 @@ class GameMap:
     def get_living_enemies(self) -> list[Enemy]:
         """Get all living enemies on the map."""
         return [e for e in self.enemies if e.is_alive]
+
+    def add_corpse(self, y: int, x: int, name: str) -> None:
+        """Place a corpse marker at (y, x). Purely visual; does not block movement."""
+        self.corpses[(y, x)] = {'char': '%', 'color': '#8B4513', 'name': name}
 
     def get_random_floor_pos(self, rng: random.Random) -> Optional[Position]:
         """Get a random floor tile position."""
