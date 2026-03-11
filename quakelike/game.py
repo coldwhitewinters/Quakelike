@@ -854,6 +854,8 @@ class Game:
 
         Called once per dead enemy (guarded by death_processed flag).
         """
+        if enemy.death_processed:
+            return
         y, x = enemy.pos.y, enemy.pos.x
         gmap.add_corpse(y, x, enemy.enemy_def.name)
         ammo_name = enemy.enemy_def.ammo_drop

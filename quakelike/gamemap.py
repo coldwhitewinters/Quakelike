@@ -8,7 +8,7 @@ from typing import Optional
 from quakelike.constants import (
     MAP_WIDTH, MAP_HEIGHT, TILE_WALL, TILE_FLOOR, TILE_DOOR,
     TILE_SLIPGATE_DOWN, TILE_SLIPGATE_UP, TILE_ENTRANCE,
-    TILE_WATER, TILE_LAVA,
+    TILE_WATER, TILE_LAVA, TILE_CORPSE, COLOR_CORPSE,
     MIN_ROOM_SIZE, MAX_ROOM_SIZE, MIN_ROOMS, MAX_ROOMS,
     NUM_MAPS, DOOR_CLOSE_DELAY,
 )
@@ -64,7 +64,7 @@ class GameMap:
     rooms: list[Room] = field(default_factory=list)
     items_on_ground: dict[tuple[int, int], list[Item]] = field(default_factory=dict)
     enemies: list[Enemy] = field(default_factory=list)
-    corpses: dict[tuple[int, int], dict] = field(default_factory=dict)
+    corpses: dict[tuple[int, int], dict[str, str]] = field(default_factory=dict)
     slipgate_down_pos: Optional[Position] = None
     slipgate_up_pos: Optional[Position] = None
     entrance_pos: Optional[Position] = None
@@ -155,7 +155,7 @@ class GameMap:
 
     def add_corpse(self, y: int, x: int, name: str) -> None:
         """Place a corpse marker at (y, x). Purely visual; does not block movement."""
-        self.corpses[(y, x)] = {'char': '%', 'color': '#8B4513', 'name': name}
+        self.corpses[(y, x)] = {'char': TILE_CORPSE, 'color': COLOR_CORPSE, 'name': name}
 
     def get_random_floor_pos(self, rng: random.Random) -> Optional[Position]:
         """Get a random floor tile position."""
