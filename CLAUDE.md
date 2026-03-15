@@ -41,10 +41,10 @@ Browser ↔ Flask-SocketIO (WebSocket) ↔ `Game` object (per session)
 | `game.py` | `Game` dataclass — state machine, input routing, turn loop, save/load |
 | `gamemap.py` | `GameMap` dataclass, procedural map generation (room-corridor + Bresenham LOS); `GameMap.corpses` dict and `add_corpse()` method for enemy death markers |
 | `entity.py` | `Entity` and `Position` base classes |
-| `player.py` | `Player` (extends `Entity`) — stats, inventory, powerups, XP/leveling |
+| `player.py` | `Player` (extends `Entity`) — stats, inventory, powerups, XP/leveling; `last_move_dir: tuple[int,int]` tracks the direction of the player's most recent move for dodge calculation |
 | `enemies.py` | `EnemyDef` dataclass (incl. `ammo_drop` field), `Enemy` class (incl. `death_processed` flag), all 12 enemy definitions |
 | `items.py` | `ItemDef` dataclass, `Item` class, all Quake items and weapons |
-| `combat.py` | `player_melee_attack`, `player_fire_weapon`, `enemy_attack`, splash damage |
+| `combat.py` | `player_melee_attack`, `player_fire_weapon`, `enemy_attack`, splash damage; `_calc_dodge_chance(move_dir, enemy_pos, player_pos)` helper drives movement-based dodge for RANGED attacks |
 | `ai.py` | `update_enemy` — enemy alerting, pathfinding, attack logic |
 | `inventory.py` | `Inventory` — 10-item max, ammo tracking, equip logic |
 | `message.py` | `MessageLog` — rolling message history |
@@ -60,7 +60,7 @@ Browser ↔ Flask-SocketIO (WebSocket) ↔ `Game` object (per session)
 - `GAME_OVER` / `VICTORY` → terminal states
 
 ### Turn Loop
-`_end_turn()` in `game.py` runs after every player action: enemy AI updates (`update_enemy` for each living enemy), player death check, powerup ticking, target list refresh.
+`_end_turn()` in `game.py` runs after every player action: enemy AI updates (`update_enemy` for each living enemy), player death check, powerup ticking, target list refresh. `_move_player()` sets `player.last_move_dir` before calling `_end_turn()` so that dodge rolls during the enemy loop have the current movement direction; `_end_turn()` resets `last_move_dir` to `(0, 0)` after the enemy loop so that non-move actions grant no dodge benefit.
 
 ### Frontend Animations
 `get_render_state()` exposes two frame-list fields that the frontend animates before showing the final state (30 ms per tile):
@@ -96,6 +96,19 @@ JSON-based, multi-save system. Each `Game` instance carries a UUID `game_id` (ge
 - The Rune appears on map index 39 (level 40); victory requires returning to map index 0 with the Rune in inventory
 - `specs.md` contains the authoritative design requirements
 - TDD is the intended workflow: write tests first, then implement
+
+### Dodge Mechanic
+When a player moves, `last_move_dir` is set to the unit step taken. During the subsequent enemy attack phase, `enemy_attack()` calls `_calc_dodge_chance(move_dir, enemy_pos, player_pos)` for every RANGED attack. MELEE, LEAP, and EXPLODE attack types auto-hit and are never dodgeable.
+
+Dodge chance is determined by the cosine similarity between the player's movement direction and the attack vector (enemy → player), combined with distance:
+
+| Movement angle relative to attack line | Dodge chance (at `DODGE_FULL_RANGE` ≥ 8 tiles) |
+|----------------------------------------|------------------------------------------------|
+| Perpendicular (strafing)               | `DODGE_CHANCE_PERPENDICULAR` = 50%             |
+| Oblique (diagonal)                     | `DODGE_CHANCE_OBLIQUE` = 30%                   |
+| Parallel (running toward/away)         | `DODGE_CHANCE_PARALLEL` = 10%                  |
+
+Chance scales linearly with distance: it is halved at distance 0 and reaches full value at `DODGE_FULL_RANGE` (8) tiles or beyond. All four constants live in `constants.py`.
 
 ## Safety Rules
 - Never delete or create any GitHub repository under any circumstances
