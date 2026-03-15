@@ -1,10 +1,15 @@
 """Combat system for Quakelike."""
 
 from __future__ import annotations
+import math
 import random
 from typing import Optional, TYPE_CHECKING
 
-from quakelike.constants import MELEE_DAMAGE_MIN, MELEE_DAMAGE_MAX
+from quakelike.constants import (
+    MELEE_DAMAGE_MIN, MELEE_DAMAGE_MAX,
+    DODGE_CHANCE_PERPENDICULAR, DODGE_CHANCE_OBLIQUE,
+    DODGE_CHANCE_PARALLEL, DODGE_FULL_RANGE,
+)
 
 SPLASH_RADIUS = 2
 
@@ -172,6 +177,42 @@ def _apply_splash_damage(center: Position, game_map: GameMap,
     return messages
 
 
+def _calc_dodge_chance(move_dir: tuple,
+                       enemy_pos: 'Position', player_pos: 'Position') -> int:
+    """Return dodge % combining movement angle vs attack line and player-enemy distance."""
+    mdy, mdx = move_dir
+    if mdy == 0 and mdx == 0:
+        return 0  # stationary — no dodge
+
+    # Attack vector: actual (non-clamped) direction from enemy to player.
+    ady = player_pos.y - enemy_pos.y
+    adx = player_pos.x - enemy_pos.x
+
+    # Cosine similarity via integer arithmetic — no sqrt, no overflow on realistic maps.
+    # cos²(θ) = dot² / (|move|² × |attack|²)
+    dot        = mdy * ady + mdx * adx
+    mag_sq_m   = mdy * mdy + mdx * mdx          # 1 (cardinal) or 2 (diagonal)
+    mag_sq_a   = ady * ady + adx * adx          # actual squared distance
+
+    dot_sq     = dot * dot
+    denom      = mag_sq_m * mag_sq_a
+
+    if dot_sq == 0:                              # cos²=0 → θ=90°
+        angle_chance = DODGE_CHANCE_PERPENDICULAR
+    elif 4 * dot_sq >= 3 * denom:               # cos²≥0.75 → θ<30°, nearly parallel
+        angle_chance = DODGE_CHANCE_PARALLEL
+    elif 4 * dot_sq <= denom:                   # cos²≤0.25 → θ>60°, nearly perpendicular
+        angle_chance = DODGE_CHANCE_PERPENDICULAR
+    else:                                        # 30°≤θ≤60°, oblique
+        angle_chance = DODGE_CHANCE_OBLIQUE
+
+    # Distance factor
+    dist = math.sqrt(mag_sq_a)
+    dist_mult = min(1.0, dist / DODGE_FULL_RANGE)
+
+    return int(angle_chance * dist_mult)
+
+
 def enemy_attack(enemy: Enemy, player: Player, game_map: GameMap,
                  rng: random.Random) -> list[str]:
     """Enemy performs an attack on the player.
@@ -217,6 +258,14 @@ def enemy_attack(enemy: Enemy, player: Player, game_map: GameMap,
         # Move fiend adjacent to player
         _move_adjacent(enemy, player.pos, game_map)
     else:
+        # Dodge check for ranged attacks only
+        if attack.attack_type == AttackType.RANGED:
+            dodge = _calc_dodge_chance(player.last_move_dir, enemy.pos, player.pos)
+            if dodge > 0 and rng.randint(1, 100) <= dodge:
+                messages.append(f'You dodge the {attack.description}!')
+                enemy.attack_cooldown = attack.cooldown
+                return messages
+
         actual = player.take_damage(damage)
         if attack.attack_type == AttackType.MELEE:
             messages.append(

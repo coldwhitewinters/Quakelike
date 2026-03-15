@@ -100,3 +100,9 @@ DOOR_CLOSE_DELAY = 5  # Turns before an open door automatically closes
 
 # Message log
 MAX_VISIBLE_MESSAGES = 3
+
+# Dodge mechanic
+DODGE_CHANCE_PERPENDICULAR = 50  # moving fully sideways relative to attacker
+DODGE_CHANCE_OBLIQUE       = 30  # moving at ~45° to the attack line
+DODGE_CHANCE_PARALLEL      = 10  # moving directly toward or away from attacker
+DODGE_FULL_RANGE           = 8   # distance (tiles) at which distance penalty disappears

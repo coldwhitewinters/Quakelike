@@ -373,6 +373,8 @@ class Game:
             return
 
         self._end_turn()
+        # Record move direction AFTER _end_turn so it persists for next-turn dodge reads
+        self.player.last_move_dir = DIRECTIONS[key]
 
     def _use_slipgate_down(self) -> None:
         """Use slipgate to go to the next map."""
@@ -875,6 +877,9 @@ class Game:
                                 current_turn=self.turn)
             for m in msgs:
                 self.message_log.add(m)
+
+        # Reset dodge state after all enemy attacks resolve
+        self.player.last_move_dir = (0, 0)
 
         # Process deaths: place corpse + ammo drop for any newly-dead enemy
         for enemy in gmap.enemies:
