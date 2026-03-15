@@ -188,7 +188,7 @@ def _calc_dodge_chance(move_dir: tuple,
     ady = player_pos.y - enemy_pos.y
     adx = player_pos.x - enemy_pos.x
 
-    # Cosine similarity via integer arithmetic — no sqrt, no overflow on realistic maps.
+    # Angle classification via integer arithmetic (no sqrt, no overflow on realistic maps).
     # cos²(θ) = dot² / (|move|² × |attack|²)
     dot        = mdy * ady + mdx * adx
     mag_sq_m   = mdy * mdy + mdx * mdx          # 1 (cardinal) or 2 (diagonal)

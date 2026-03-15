@@ -1084,6 +1084,7 @@ class Game:
             'invisibility_turns': p.invisibility_turns,
             'biosuit_turns': p.biosuit_turns,
             'megahealth_decay': p.megahealth_decay,
+            'last_move_dir': list(p.last_move_dir),
         }
 
     def _serialize_map(self, gmap: GameMap) -> dict:
@@ -1200,6 +1201,8 @@ class Game:
         self.player.invisibility_turns = pdata['invisibility_turns']
         self.player.biosuit_turns = pdata['biosuit_turns']
         self.player.megahealth_decay = pdata.get('megahealth_decay', False)
+        raw_dir = pdata.get('last_move_dir', [0, 0])
+        self.player.last_move_dir = (raw_dir[0], raw_dir[1])
 
         # Restore inventory
         self.player.inventory.items.clear()
