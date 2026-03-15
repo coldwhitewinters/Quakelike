@@ -39,6 +39,9 @@ class Player(Entity):
     # Targeting
     target_index: int = -1
 
+    # Movement dodge tracking
+    last_move_dir: tuple = (0, 0)
+
     @classmethod
     def create(cls, pos: Position) -> Player:
         """Create a new player with starting equipment."""
