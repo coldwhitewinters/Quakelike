@@ -111,6 +111,10 @@ def _handle_adjacent_door(enemy: Enemy, player: 'Player', game_map: 'GameMap',
 
     _move_toward_player handles door-opening for newly-alerted enemies.
     """
+    # Water-bound enemies cannot traverse doors (doors are never water tiles)
+    if enemy.enemy_def.requires_water:
+        return False
+
     # Build greedy direction toward player
     dy = 0
     dx = 0

@@ -10,20 +10,19 @@ Bug 2 - Movement: _wander() and _move_toward_player() in ai.py check
 avoids_water but have no requires_water guard. Rotfish with avoids_water=False
 freely walks onto dry floor tiles.
 
-All four tests below FAIL with the current codebase and must PASS after the
+All seven tests FAIL with the unfixed codebase and PASS after the
 fix introduces EnemyDef.requires_water and the corresponding spawn / movement
 guards.
 """
 
 import random
-import pytest
 
 from quakelike.entity import Position
 from quakelike.player import Player
-from quakelike.enemies import Enemy, EnemyDef, ROTFISH
+from quakelike.enemies import Enemy, ROTFISH
 from quakelike.gamemap import GameMap, Room, _place_enemies
 from quakelike.ai import update_enemy
-from quakelike.constants import TILE_FLOOR, TILE_WATER, TILE_WALL
+from quakelike.constants import TILE_FLOOR, TILE_WATER
 
 
 # ---------------------------------------------------------------------------
