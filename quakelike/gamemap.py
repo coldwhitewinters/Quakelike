@@ -488,12 +488,6 @@ def _place_enemies(gmap: GameMap, level: int, rooms: list[Room],
 
     for _ in range(num_enemies):
         room = rng.choice(rooms[1:] if len(rooms) > 1 else rooms)
-        pos = _random_floor_in_room(gmap, room, rng)
-        if pos is None:
-            continue
-
-        if gmap.get_enemy_at(pos.y, pos.x) is not None:
-            continue
 
         weights = []
         for e in available:
@@ -501,6 +495,20 @@ def _place_enemies(gmap: GameMap, level: int, rooms: list[Room],
             weights.append(w)
 
         enemy_def = rng.choices(available, weights=weights, k=1)[0]
+
+        if enemy_def.requires_water:
+            pos = _random_water_in_room(gmap, room, rng)
+            if pos is None:
+                # Assigned room has no water — search all rooms for water
+                pos = _random_water_any_room(gmap, rooms, rng)
+        else:
+            pos = _random_floor_in_room(gmap, room, rng)
+        if pos is None:
+            continue
+
+        if gmap.get_enemy_at(pos.y, pos.x) is not None:
+            continue
+
         enemy = Enemy.from_def(enemy_def, pos)
         gmap.enemies.append(enemy)
 
@@ -515,4 +523,35 @@ def _random_floor_in_room(gmap: GameMap, room: Room,
                 candidates.append(Position(y, x))
     if candidates:
         return rng.choice(candidates)
+    return None
+
+
+def _random_water_in_room(gmap: GameMap, room: Room,
+                          rng: random.Random) -> Optional[Position]:
+    """Get a random water tile position in a room."""
+    candidates = []
+    for y in range(room.y + 1, room.y2 - 1):
+        for x in range(room.x + 1, room.x2 - 1):
+            if gmap.tiles[y][x] == TILE_WATER:
+                candidates.append(Position(y, x))
+    if candidates:
+        return rng.choice(candidates)
+    return None
+
+
+def _random_water_any_room(gmap: GameMap, rooms: list[Room],
+                           rng: random.Random) -> Optional[Position]:
+    """Get a random water tile position from any room on the map.
+
+    Uses index-based selection to avoid rng.choice (which may be mocked
+    for room selection in tests).
+    """
+    candidates = []
+    for room in rooms:
+        for y in range(room.y + 1, room.y2 - 1):
+            for x in range(room.x + 1, room.x2 - 1):
+                if gmap.tiles[y][x] == TILE_WATER:
+                    candidates.append(Position(y, x))
+    if candidates:
+        return candidates[rng.randrange(len(candidates))]
     return None

@@ -167,6 +167,9 @@ def _wander(enemy: Enemy, game_map: GameMap, rng: random.Random) -> None:
         if enemy.enemy_def.avoids_water:
             if game_map.get_tile(ny, nx) == TILE_WATER:
                 return
+        if enemy.enemy_def.requires_water:
+            if game_map.get_tile(ny, nx) != TILE_WATER:
+                return
         enemy.pos = Position(ny, nx)
 
 
@@ -215,6 +218,9 @@ def _move_toward_player(enemy: Enemy, player: Player,
             # Water check
             if enemy.enemy_def.avoids_water:
                 if game_map.get_tile(ny, nx) == TILE_WATER:
+                    continue
+            if enemy.enemy_def.requires_water:
+                if game_map.get_tile(ny, nx) != TILE_WATER:
                     continue
             enemy.pos = Position(ny, nx)
             return
