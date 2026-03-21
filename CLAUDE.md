@@ -42,10 +42,10 @@ Browser ↔ Flask-SocketIO (WebSocket) ↔ `Game` object (per session)
 | `gamemap.py` | `GameMap` dataclass, procedural map generation (room-corridor + Bresenham LOS); `GameMap.corpses` dict and `add_corpse()` method for enemy death markers |
 | `entity.py` | `Entity` and `Position` base classes |
 | `player.py` | `Player` (extends `Entity`) — stats, inventory, powerups, XP/leveling; `last_move_dir: tuple[int,int]` tracks the direction of the player's most recent move for dodge calculation |
-| `enemies.py` | `EnemyDef` dataclass (incl. `ammo_drop` field), `Enemy` class (incl. `death_processed` flag), all 12 enemy definitions |
+| `enemies.py` | `EnemyDef` dataclass (incl. `ammo_drop` and `requires_water` fields), `Enemy` class (incl. `death_processed` flag), all 12 enemy definitions |
 | `items.py` | `ItemDef` dataclass, `Item` class, all Quake items and weapons |
 | `combat.py` | `player_melee_attack`, `player_fire_weapon`, `enemy_attack`, splash damage; `_calc_dodge_chance(move_dir, enemy_pos, player_pos)` helper drives movement-based dodge for RANGED attacks |
-| `ai.py` | `update_enemy` — enemy alerting, pathfinding, attack logic |
+| `ai.py` | `update_enemy` — enemy alerting, pathfinding, attack logic; `requires_water` guard in `_wander()`, `_move_toward_player()`, and `_handle_adjacent_door()` prevents water-only enemies from entering dry tiles |
 | `inventory.py` | `Inventory` — 10-item max, ammo tracking, equip logic |
 | `message.py` | `MessageLog` — rolling message history |
 | `constants.py` | All magic numbers, tile chars, key bindings, colors |
@@ -86,7 +86,7 @@ JSON-based, multi-save system. Each `Game` instance carries a UUID `game_id` (ge
 `#` wall · `.` floor · `+` door · `>` slipgate down · `<` slipgate up · `E` entrance · `~` water · `=` lava · `%` corpse
 
 ### Adding Content
-- **New enemy**: Add `EnemyDef` to `quakelike/enemies.py` and append to `ALL_ENEMIES`
+- **New enemy**: Add `EnemyDef` to `quakelike/enemies.py` and append to `ALL_ENEMIES`; set `requires_water=True` for enemies that must spawn and remain on water tiles (e.g. Rotfish)
 - **New item**: Add `ItemDef` to `quakelike/items.py` and append to the appropriate `ALL_*` list
 - **New key binding**: Add constant to `constants.py`, handle in `game.py`
 

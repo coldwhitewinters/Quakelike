@@ -41,6 +41,7 @@ class EnemyDef:
     can_fly: bool = False
     can_swim: bool = False
     avoids_water: bool = True
+    requires_water: bool = False
     description: str = ''
     min_map_level: int = 1  # earliest map this enemy can appear on
     ammo_drop: Optional[str] = None  # item name to drop on death, or None
@@ -165,6 +166,7 @@ ROTFISH = EnemyDef(
     xp_value=5,
     can_swim=True,
     avoids_water=False,
+    requires_water=True,
     min_map_level=2,
     description='A mutant fish lurking in water.',
 )
