@@ -201,13 +201,16 @@ APP_URL=$(az containerapp show \
 
 # Export current app definition, patch it, and apply
 TMPFILE=$(mktemp /tmp/quakelike-app-XXXXXX.yaml)
+trap 'rm -f "${TMPFILE}"' EXIT
 az containerapp show \
   --name "${APP_NAME}" \
   --resource-group "${RESOURCE_GROUP}" \
   --output yaml > "${TMPFILE}"
 
-# Update CORS_ORIGINS
-sed -i "s|value: https://placeholder.invalid|value: https://${APP_URL}|g" "${TMPFILE}"
+# Update CORS_ORIGINS (only needed on first deploy; on re-runs the placeholder is already gone)
+if grep -q "placeholder.invalid" "${TMPFILE}"; then
+  sed -i "s|value: https://placeholder.invalid|value: https://${APP_URL}|g" "${TMPFILE}"
+fi
 
 # Inject volumeMounts into container if not already present
 if ! grep -q "volumeMounts" "${TMPFILE}"; then
