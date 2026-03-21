@@ -29,18 +29,22 @@ A roguelike dungeon crawler inspired by the classic FPS game Quake. Explore 40 p
 
 ## Installation & Setup
 
-### Option 1: Docker (Recommended)
+### Option 1: Play Online
 
-The easiest way to run Quakelike is using Docker:
+The game is deployed on Azure and available at:
+
+**https://quakelike.nicegrass-99f8552c.westeurope.azurecontainerapps.io**
+
+### Option 2: Docker (Local)
 
 ```bash
 # Build and run with docker-compose
 docker-compose up --build
 
-# Access the game at http://localhost:5000
+# Access the game at http://localhost:8080
 ```
 
-### Option 2: Local Development
+### Option 3: Local Development
 
 Requirements:
 - Python 3.10 or higher
@@ -53,13 +57,13 @@ uv sync
 # Run the server
 uv run python server.py
 
-# Access the game at http://localhost:5000
+# Access the game at http://localhost:8080
 ```
 
 ## How to Play
 
 ### Starting the Game
-1. Open your web browser and navigate to `http://localhost:5000`
+1. Open your web browser and navigate to the online URL above, or `http://localhost:8080` if running locally
 2. Click "New Game" to start a fresh adventure
 3. Click "Load Game" to continue a saved game
 
@@ -173,6 +177,7 @@ Quakelike/
 ├── pyproject.toml          # Python project configuration
 ├── Dockerfile              # Docker container definition
 ├── docker-compose.yml      # Docker compose configuration
+├── deploy.sh               # Azure deployment script
 └── README.md               # This file
 ```
 
@@ -271,7 +276,12 @@ NEW_ITEM = ItemDef(
 - **pytest 8.0+**: Testing framework
 - **pytest-cov 4.0+**: Code coverage
 - **Docker**: Containerization
-- **Docker Compose**: Development environment
+- **Docker Compose**: Local development environment
+
+### Cloud Infrastructure
+- **Azure Container Apps**: Serverless container hosting
+- **Azure Container Registry**: Private Docker image registry
+- **Azure Files**: Persistent storage for game saves
 
 ## Game Design Notes
 
@@ -317,17 +327,48 @@ Contributions are welcome! Please feel free to submit issues or pull requests.
 
 ### Game won't start
 - Ensure Docker is running (if using Docker)
-- Check that port 5000 is not in use by another application
+- Check that port 8080 is not in use by another application
 - Verify Python 3.10+ is installed (if running locally)
 
 ### Can't connect to server
 - Check that the server is running
-- Verify you're accessing `http://localhost:5000`
+- Verify you're accessing `http://localhost:8080`
 - Check browser console for WebSocket connection errors
 
 ### Save game not loading
 - Ensure you have a saved game (press `S` during gameplay)
 - Check that `savegame.json` exists in the project directory
+
+## Deployment
+
+The game is hosted on Azure Container Apps. Deployment is managed via `deploy.sh`.
+
+### Redeploy after code changes
+
+```bash
+./deploy.sh --update
+```
+
+This rebuilds the Docker image in Azure Container Registry and updates the running container app.
+
+### First-time setup on a new Azure subscription
+
+```bash
+# Requires Azure CLI installed and logged in (az login)
+./deploy.sh
+```
+
+### Teardown
+
+```bash
+az group delete --name quakelike-rg --yes --no-wait
+```
+
+### View live logs
+
+```bash
+az containerapp logs show --name quakelike --resource-group quakelike-rg --follow
+```
 
 ## Acknowledgments
 
