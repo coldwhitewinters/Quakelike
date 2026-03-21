@@ -10,7 +10,7 @@ uv sync --dev
 
 # Run the game server
 uv run python server.py
-# Access at http://localhost:5000
+# Access at http://localhost:8080
 
 # Run all tests
 uv run pytest
@@ -21,11 +21,18 @@ uv run pytest tests/test_combat.py
 # Run with coverage
 uv run pytest --cov=quakelike --cov-report=html
 
-# Docker
+# Docker (local)
 docker-compose up --build
+# Access at http://localhost:8080
+
+# Deploy to Azure (first time)
+./deploy.sh
+
+# Redeploy after code changes
+./deploy.sh --update
 ```
 
-Environment variable `FLASK_DEBUG=true` enables Flask debug mode. `CORS_ORIGINS` overrides the allowed WebSocket origins (default: `http://localhost:5000`).
+Environment variable `FLASK_DEBUG=true` enables Flask debug mode. `CORS_ORIGINS` overrides the allowed WebSocket origins (default: `http://localhost:8080`).
 
 ## Architecture
 
@@ -109,6 +116,51 @@ Dodge chance is determined by the cosine similarity between the player's movemen
 | Parallel (running toward/away)         | `DODGE_CHANCE_PARALLEL` = 10%                  |
 
 Chance scales linearly with distance: it is halved at distance 0 and reaches full value at `DODGE_FULL_RANGE` (8) tiles or beyond. All four constants live in `constants.py`.
+
+## Azure Deployment
+
+The game is deployed to Azure Container Apps at:
+`https://quakelike.nicegrass-99f8552c.westeurope.azurecontainerapps.io`
+
+### Azure Resources
+
+| Resource | Name | Purpose |
+|---|---|---|
+| Resource Group | `quakelike-rg` (West Europe) | Container for all resources |
+| Container Registry | `quakelikeacr` | Stores Docker images |
+| Storage Account | `quakelikestorage` | Azure Files share for `saves/` persistence |
+| Container Apps Environment | `quakelike-env` | Shared runtime environment |
+| Container App | `quakelike` | The running application |
+
+### Configuration
+- 0.5 vCPU / 1 GiB RAM, 1 replica (fixed — game sessions are in-memory; scaling would break session state)
+- `saves/` mounted from Azure Files share `saves` via storage mount `saves-mount`
+- `FLASK_DEBUG=false`, `CORS_ORIGINS` set to the app HTTPS URL
+
+### Deployment Script
+`deploy.sh` at the repo root handles both first-time setup and redeployments.
+
+```bash
+# First-time: provisions all Azure resources and deploys
+./deploy.sh
+
+# After code changes: rebuilds image and updates the running app
+./deploy.sh --update
+
+# Override defaults (e.g. different region or app name)
+./deploy.sh -l eastus -a myquakelike
+```
+
+### Teardown
+```bash
+az group delete --name quakelike-rg --yes --no-wait
+```
+This deletes all Azure resources (ACR, storage, Container App, environment).
+
+### Logs
+```bash
+az containerapp logs show --name quakelike --resource-group quakelike-rg --follow
+```
 
 ## Safety Rules
 - Never delete or create any GitHub repository under any circumstances

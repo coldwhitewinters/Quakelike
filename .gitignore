@@ -209,6 +209,9 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-# File to describe issues to claude
+# File to describe issues and features to claude
+features.txt
 issues.txt
 
+# File to store code reviews
+reviews/
