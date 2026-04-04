@@ -55,6 +55,7 @@ Browser ↔ Flask-SocketIO (WebSocket) ↔ `Game` object (per session)
 | `ai.py` | `update_enemy` — enemy alerting, pathfinding, attack logic; `requires_water` guard in `_wander()`, `_move_toward_player()`, and `_handle_adjacent_door()` prevents water-only enemies from entering dry tiles |
 | `inventory.py` | `Inventory` — 10-item max, ammo tracking, equip logic |
 | `message.py` | `MessageLog` — rolling message history |
+| `settings.py` | `GameSettings` dataclass — configurable keybindings and game options; global `settings.json` persistence |
 | `constants.py` | All magic numbers, tile chars, key bindings, colors |
 
 ### Game State Machine
@@ -89,17 +90,29 @@ JSON-based, multi-save system. Each `Game` instance carries a UUID `game_id` (ge
 - Permadeath deletes only the affected game's `game_<uuid>.json` save.
 - All `game_id` values are validated against a strict UUID regex before any filesystem operation.
 
+### Settings
+`GameSettings` in `quakelike/settings.py` holds all user-configurable state: `keybindings` (action → key string) and `game_options` (option → value). Settings are stored globally in `settings.json` at the project root and persist across all game sessions.
+
+- `GameSettings.load()` reads `settings.json`; falls back to defaults on missing or malformed files and fills in any newly added actions from `DEFAULT_KEYBINDINGS`
+- `GameSettings.save()` writes `settings.json`; creates parent directories if needed
+- `GameSettings.reset()` restores all defaults and overwrites `settings.json`
+- `GameSettings.validate()` raises `ValueError` on empty bindings or duplicates; called server-side before persisting any change from the frontend
+
+`server.py` exposes three socket events for the settings UI: `get_settings` (returns current settings dict), `save_settings` (validates and persists), and `reset_settings` (resets to defaults). The constant `SETTINGS_PATH = 'settings.json'` in both `server.py` and `quakelike/settings.py` can be patched in tests via `mock.patch`.
+
+To add a new configurable option, add it to `DEFAULT_KEYBINDINGS` (for key bindings) or `DEFAULT_GAME_OPTIONS` (for other options) in `quakelike/settings.py`.
+
 ### Tile Characters
 `#` wall · `.` floor · `+` door · `>` slipgate down · `<` slipgate up · `E` entrance · `~` water · `=` lava · `%` corpse
 
 ### Adding Content
 - **New enemy**: Add `EnemyDef` to `quakelike/enemies.py` and append to `ALL_ENEMIES`; set `requires_water=True` for enemies that must spawn and remain on water tiles (e.g. Rotfish)
 - **New item**: Add `ItemDef` to `quakelike/items.py` and append to the appropriate `ALL_*` list
-- **New key binding**: Add constant to `constants.py`, handle in `game.py`
+- **New key binding**: Add the action and its default key to `DEFAULT_KEYBINDINGS` in `quakelike/settings.py`; add any related constant to `constants.py`; handle the action in `game.py`
 
 ## Development Notes
 
-- Controls are case-sensitive (`S` saves the game and returns to the main menu, `Q` quits without saving — the frontend shows a confirmation dialog before the save is deleted, lowercase letters move)
+- Controls are case-sensitive by default (`S` saves the game and returns to the main menu, `Q` quits without saving — the frontend shows a confirmation dialog before the save is deleted, lowercase letters move) and are configurable via the Settings screen (accessible with `O` while in-game, or the Settings button on the title screen)
 - The Rune appears on map index 39 (level 40); victory requires returning to map index 0 with the Rune in inventory
 - `specs.md` contains the authoritative design requirements
 - TDD is the intended workflow: write tests first, then implement
