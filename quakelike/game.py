@@ -28,6 +28,7 @@ from quakelike.constants import (
     DOOR_CLOSE_DELAY,
     CHAR_PROJECTILE, COLOR_PROJECTILE,
 )
+from quakelike.settings import GameSettings
 from quakelike.entity import Position
 from quakelike.player import Player
 from quakelike.gamemap import GameMap, generate_map, _find_safe_start
@@ -183,6 +184,7 @@ class Game:
     seed: int = 0
     turn: int = 0
     game_id: str = field(default_factory=lambda: str(uuid.uuid4()))
+    settings: GameSettings = field(default_factory=GameSettings.defaults)
 
     quit: bool = False
 
@@ -260,60 +262,87 @@ class Game:
         else:
             return self._handle_playing_input(key)
 
+    def _get_movement_direction(self, key: str) -> tuple[int, int] | None:
+        """Return (dy, dx) if *key* is bound to a movement action, else None.
+
+        Checks settings-based keybindings first so remapped keys work correctly.
+        """
+        return self.settings.get_movement_direction(key)
+
     def _handle_playing_input(self, key: str) -> dict:
         """Handle input during normal play."""
         self._travel_frames = []      # clear stale animation data from previous travel
         self._projectile_frames = []  # clear stale projectile animation from previous fire
-        if key in DIRECTIONS:
-            self._move_player(key)
-        elif key == KEY_SLIPGATE_DOWN:
+
+        # Resolve settings-based keybindings for action keys
+        kb = self.settings.keybindings
+        move_dir = self._get_movement_direction(key)
+        if move_dir is not None:
+            self._move_player_direction(move_dir, key)
+        elif key == kb.get("slipgate_down", KEY_SLIPGATE_DOWN):
             self._use_slipgate_down()
-        elif key == KEY_SLIPGATE_UP:
+        elif key == kb.get("slipgate_up", KEY_SLIPGATE_UP):
             self._use_slipgate_up()
-        elif key == KEY_INVENTORY:
+        elif key == kb.get("inventory", KEY_INVENTORY):
             self._open_inventory()
-        elif key == KEY_EXAMINE:
+        elif key == kb.get("examine", KEY_EXAMINE):
             self._enter_examine()
-        elif key == KEY_FAST_TRAVEL:
+        elif key == kb.get("fast_travel", KEY_FAST_TRAVEL):
             self._enter_fast_travel()
-        elif key == KEY_TARGET:
+        elif key == kb.get("target_next", KEY_TARGET):
             self._cycle_target_forward()
-        elif key == KEY_TARGET_PREV:
+        elif key == kb.get("target_prev", KEY_TARGET_PREV):
             self._cycle_target_backward()
-        elif key == KEY_TARGET_CLEAR:
+        elif key == kb.get("target_clear", KEY_TARGET_CLEAR):
             self._clear_target()
-        elif key == KEY_FIRE:
+        elif key == kb.get("fire", KEY_FIRE):
             self._fire_weapon()
-        elif key == KEY_SWAP_WEAPON:
+        elif key == kb.get("swap_weapon", KEY_SWAP_WEAPON):
             self._swap_weapon()
-        elif key == KEY_MESSAGE_LOG:
+        elif key == kb.get("message_log", KEY_MESSAGE_LOG):
             self.state = GameState.MESSAGE_LOG
             self.message_log_scroll = 0
-        elif key == KEY_HELP:
+        elif key == kb.get("help", KEY_HELP):
             self.previous_state = GameState.PLAYING
             self.state = GameState.HELP
-        elif key == KEY_SAVE:
+        elif key == kb.get("save", KEY_SAVE):
             self._save_game()
             state = self.get_render_state()
             state['goto_menu'] = True
             return state
-        elif key == KEY_QUIT:
+        elif key == kb.get("quit", KEY_QUIT):
             # Legacy: Q sets GAME_OVER for backward compatibility.
             # The new frontend uses quit_without_save() with a confirmation dialog.
             self.state = GameState.GAME_OVER
             self.quit = True
             self.message_log.add('You quit the game.')
-        elif key == KEY_REST:
+        elif key == kb.get("rest", KEY_REST):
             self.message_log.add('You rest.')
             self._end_turn()
-        elif key == KEY_PICKUP:
+        elif key == kb.get("pickup", KEY_PICKUP):
             self._pickup_floor_item()
 
         return self.get_render_state()
 
+    def _move_player_direction(self, direction: tuple[int, int], key: str = '') -> None:
+        """Move player in a given (dy, dx) direction.
+
+        *key* is unused but kept for backward compatibility with callers
+        that were previously passing the key string.
+        """
+        self._do_move(direction)
+
     def _move_player(self, key: str) -> None:
-        """Move player in a direction."""
-        dy, dx = DIRECTIONS[key]
+        """Move player in a direction using the legacy DIRECTIONS dict.
+
+        Kept for backward compatibility; prefer _move_player_direction when
+        the direction is already known.
+        """
+        self._do_move(DIRECTIONS[key])
+
+    def _do_move(self, direction: tuple[int, int]) -> None:
+        """Core movement logic: attempt to move player one step in *direction*."""
+        dy, dx = direction
         new_y = self.player.pos.y + dy
         new_x = self.player.pos.x + dx
         gmap = self.current_map
@@ -374,7 +403,7 @@ class Game:
 
         self._end_turn()
         # Record move direction AFTER _end_turn so it persists for next-turn dodge reads
-        self.player.last_move_dir = DIRECTIONS[key]
+        self.player.last_move_dir = direction
 
     def _use_slipgate_down(self) -> None:
         """Use slipgate to go to the next map."""
