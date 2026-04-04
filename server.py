@@ -193,6 +193,10 @@ def on_save_settings(data):
 def on_reset_settings():
     """Reset settings to defaults, persist them, and emit the default settings_data."""
     settings = GameSettings.reset()
+    sid = request.sid
+    game = games.get(sid)
+    if game is not None:
+        game.settings = settings
     emit('settings_data', settings.to_dict())
 
 
