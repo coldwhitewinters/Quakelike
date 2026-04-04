@@ -8,6 +8,44 @@ let gameState = null;
 let currentGameId = null;
 
 // ============================================================
+// SETTINGS STATE
+// ============================================================
+
+// Working copy of settings being edited in the overlay (never mutate directly)
+let settingsWorkingCopy = null;  // { keybindings: {...}, game_options: {...} }
+
+// Which keybinding action is currently awaiting a keypress (null if none)
+let capturingAction = null;
+
+// Human-readable labels for each action key
+const ACTION_LABELS = {
+    move_up:        'Move Up',
+    move_down:      'Move Down',
+    move_left:      'Move Left',
+    move_right:     'Move Right',
+    move_up_right:  'Move Up-Right',
+    move_up_left:   'Move Up-Left',
+    move_down_right:'Move Down-Right',
+    move_down_left: 'Move Down-Left',
+    inventory:      'Inventory',
+    examine:        'Examine',
+    fire:           'Fire',
+    target_next:    'Target Next',
+    target_prev:    'Target Prev',
+    target_clear:   'Clear Target',
+    swap_weapon:    'Swap Weapon',
+    message_log:    'Message Log',
+    help:           'Help',
+    save:           'Save Game',
+    quit:           'Quit',
+    rest:           'Rest',
+    pickup:         'Pick Up',
+    slipgate_down:  'Slipgate Down',
+    slipgate_up:    'Slipgate Up',
+    fast_travel:    'Fast Travel',
+};
+
+// ============================================================
 // CONNECTION
 // ============================================================
 
@@ -66,6 +104,22 @@ function initSocket() {
     socket.on('reconnect', () => {
         console.log('Reconnected to server');
         hideConnectionStatus();
+    });
+
+    socket.on('settings_data', (data) => {
+        renderSettings(data);
+    });
+
+    socket.on('settings_saved', () => {
+        showSettingsMessage('Settings saved.', 'success');
+        setTimeout(() => {
+            closeSettings();
+        }, 800);
+    });
+
+    socket.on('settings_error', (data) => {
+        const msg = (data && data.message) ? data.message : 'An error occurred saving settings.';
+        showSettingsMessage(msg, 'error');
     });
 }
 
@@ -158,10 +212,280 @@ function sendInput(key) {
 }
 
 // ============================================================
+// SETTINGS
+// ============================================================
+
+function openSettings() {
+    // Ensure socket is initialised (may be called before a game starts)
+    if (!socket || !socket.connected) {
+        initSocket();
+    }
+    // Reset any previous capture state
+    capturingAction = null;
+    document.getElementById('settings-overlay').style.display = 'block';
+    // Always start on the keybindings tab
+    switchSettingsTab('keybindings');
+    socket.emit('get_settings');
+}
+
+function closeSettings() {
+    capturingAction = null;
+    document.getElementById('settings-overlay').style.display = 'none';
+    hideSettingsMessage();
+    settingsWorkingCopy = null;
+}
+
+function switchSettingsTab(tab) {
+    const kbSection = document.getElementById('settings-keybindings-section');
+    const optSection = document.getElementById('settings-options-section');
+    const kbTab = document.getElementById('settings-tab-keybindings');
+    const optTab = document.getElementById('settings-tab-options');
+
+    if (tab === 'keybindings') {
+        kbSection.style.display = 'block';
+        optSection.style.display = 'none';
+        kbTab.classList.add('settings-tab-active');
+        optTab.classList.remove('settings-tab-active');
+    } else {
+        kbSection.style.display = 'none';
+        optSection.style.display = 'block';
+        kbTab.classList.remove('settings-tab-active');
+        optTab.classList.add('settings-tab-active');
+    }
+    // Cancel any key capture when switching tabs
+    if (capturingAction) {
+        capturingAction = null;
+        renderKeybindingsTable(settingsWorkingCopy ? settingsWorkingCopy.keybindings : {});
+    }
+}
+
+/**
+ * Called when the server emits settings_data.
+ * Takes a deep copy so that editing the table never modifies the server-sent data.
+ */
+function renderSettings(data) {
+    settingsWorkingCopy = {
+        keybindings: Object.assign({}, data.keybindings || {}),
+        game_options: Object.assign({}, data.game_options || {}),
+    };
+    capturingAction = null;
+    hideSettingsMessage();
+    renderKeybindingsTable(settingsWorkingCopy.keybindings);
+    renderGameOptions(settingsWorkingCopy.game_options);
+}
+
+function renderKeybindingsTable(keybindings) {
+    const tbody = document.getElementById('settings-keybindings-body');
+    if (!tbody) return;
+
+    const actions = Object.keys(ACTION_LABELS);
+    let html = '';
+    for (const action of actions) {
+        const label = ACTION_LABELS[action] || action;
+        const key = keybindings[action] || '';
+        const isCapturing = capturingAction === action;
+
+        const rowClass = isCapturing ? ' class="capturing"' : '';
+        const cellClass = isCapturing ? ' capturing' : '';
+        const keyDisplay = isCapturing ? '[press any key]' : escapeHtml(key);
+
+        html += `<tr${rowClass} data-action="${escapeHtml(action)}" onclick="startKeyCapture('${escapeHtml(action)}')">`;
+        html += `<td>${escapeHtml(label)}</td>`;
+        html += `<td class="key-cell${cellClass}">${keyDisplay}</td>`;
+        html += '</tr>';
+    }
+    tbody.innerHTML = html;
+}
+
+function renderGameOptions(options) {
+    const speedEl = document.getElementById('settings-animation-speed');
+    const msgsEl = document.getElementById('settings-max-messages');
+    if (speedEl && options.animation_speed_ms !== undefined) {
+        speedEl.value = options.animation_speed_ms;
+    }
+    if (msgsEl && options.max_visible_messages !== undefined) {
+        msgsEl.value = options.max_visible_messages;
+    }
+}
+
+/**
+ * Enter key-capture mode for the given action row.
+ * Clicking a row that is already capturing cancels the capture.
+ */
+function startKeyCapture(action) {
+    if (capturingAction === action) {
+        // Cancel capture on second click
+        capturingAction = null;
+        renderKeybindingsTable(settingsWorkingCopy.keybindings);
+        return;
+    }
+    capturingAction = action;
+    renderKeybindingsTable(settingsWorkingCopy.keybindings);
+}
+
+/**
+ * Normalise a KeyboardEvent into the string format used by the backend.
+ * Returns null when the key should cancel capture (Escape).
+ */
+function normaliseKey(e) {
+    if (e.key === 'Escape') return null;
+    if (e.key === 'Enter') return 'Return';
+    // Alt+key combos
+    if (e.altKey && e.key.length === 1) return 'Alt-' + e.key;
+    // Pass through everything else verbatim (handles ArrowUp, Tab, single chars, etc.)
+    return e.key;
+}
+
+/**
+ * Called from the document keydown handler when the settings overlay is open
+ * and capturingAction is set.
+ */
+function handleSettingsKeyCapture(e) {
+    e.preventDefault();
+    e.stopPropagation();
+
+    if (!settingsWorkingCopy || !capturingAction) return;
+
+    const key = normaliseKey(e);
+
+    if (key === null) {
+        // Escape pressed — cancel capture without changing the binding
+        capturingAction = null;
+        renderKeybindingsTable(settingsWorkingCopy.keybindings);
+        return;
+    }
+
+    const action = capturingAction;
+
+    // Check for conflicts with other actions
+    const conflictAction = findConflict(key, action, settingsWorkingCopy.keybindings);
+
+    if (conflictAction) {
+        const conflictLabel = ACTION_LABELS[conflictAction] || conflictAction;
+        // Show conflict inline in the row rather than blocking the assignment
+        showConflictInRow(action, key, conflictLabel);
+        return;
+    }
+
+    // Apply binding
+    settingsWorkingCopy.keybindings[action] = key;
+    capturingAction = null;
+    renderKeybindingsTable(settingsWorkingCopy.keybindings);
+    hideSettingsMessage();
+}
+
+/**
+ * Returns the name of the action already using `key`, excluding `excludeAction`.
+ * Returns null if no conflict.
+ */
+function findConflict(key, excludeAction, keybindings) {
+    for (const [action, boundKey] of Object.entries(keybindings)) {
+        if (action !== excludeAction && boundKey === key) {
+            return action;
+        }
+    }
+    return null;
+}
+
+/**
+ * Show an inline conflict warning in the capturing row.
+ * The row remains in capture mode so the user can try a different key.
+ */
+function showConflictInRow(action, key, conflictLabel) {
+    const tbody = document.getElementById('settings-keybindings-body');
+    if (!tbody) return;
+
+    const actions = Object.keys(ACTION_LABELS);
+    let html = '';
+    for (const a of actions) {
+        const label = ACTION_LABELS[a] || a;
+        const boundKey = settingsWorkingCopy.keybindings[a] || '';
+        const isCapturing = a === action;
+
+        if (isCapturing) {
+            html += `<tr class="conflict" data-action="${escapeHtml(a)}" onclick="startKeyCapture('${escapeHtml(a)}')">`;
+            html += `<td>${escapeHtml(label)}</td>`;
+            html += `<td class="key-cell capturing">[press any key]</td>`;
+            html += '</tr>';
+            // Append a hint row
+            html += `<tr class="conflict" style="cursor:default;" onclick="startKeyCapture('${escapeHtml(a)}')">`;
+            html += `<td colspan="2" class="conflict-hint" style="padding:2px 8px 6px;">`;
+            html += `"${escapeHtml(key)}" already bound to: ${escapeHtml(conflictLabel)}`;
+            html += `</td></tr>`;
+        } else {
+            const rowClass = capturingAction === a ? ' class="capturing"' : '';
+            const cellClass = capturingAction === a ? ' capturing' : '';
+            html += `<tr${rowClass} data-action="${escapeHtml(a)}" onclick="startKeyCapture('${escapeHtml(a)}')">`;
+            html += `<td>${escapeHtml(label)}</td>`;
+            html += `<td class="key-cell${cellClass}">${escapeHtml(boundKey)}</td>`;
+            html += '</tr>';
+        }
+    }
+    tbody.innerHTML = html;
+}
+
+function collectCurrentSettings() {
+    if (!settingsWorkingCopy) return null;
+
+    const speedEl = document.getElementById('settings-animation-speed');
+    const msgsEl = document.getElementById('settings-max-messages');
+
+    const game_options = Object.assign({}, settingsWorkingCopy.game_options);
+    if (speedEl) {
+        game_options.animation_speed_ms = parseInt(speedEl.value, 10) || game_options.animation_speed_ms;
+    }
+    if (msgsEl) {
+        game_options.max_visible_messages = parseInt(msgsEl.value, 10) || game_options.max_visible_messages;
+    }
+
+    return {
+        keybindings: Object.assign({}, settingsWorkingCopy.keybindings),
+        game_options,
+    };
+}
+
+function showSettingsMessage(text, type) {
+    const el = document.getElementById('settings-message');
+    if (!el) return;
+    el.textContent = text;
+    el.style.display = 'block';
+    if (type === 'error') {
+        el.style.background = '#2a0000';
+        el.style.color = '#f88';
+        el.style.border = '1px solid #c00';
+    } else {
+        el.style.background = '#002a00';
+        el.style.color = '#8f8';
+        el.style.border = '1px solid #0a0';
+    }
+}
+
+function hideSettingsMessage() {
+    const el = document.getElementById('settings-message');
+    if (el) el.style.display = 'none';
+}
+
+function isSettingsOpen() {
+    const overlay = document.getElementById('settings-overlay');
+    return overlay && overlay.style.display !== 'none';
+}
+
+// ============================================================
 // INPUT HANDLING
 // ============================================================
 
 document.addEventListener('keydown', (e) => {
+    // If settings overlay is open, route all input through settings handling
+    if (isSettingsOpen()) {
+        if (capturingAction) {
+            handleSettingsKeyCapture(e);
+        } else if (e.key === 'Escape') {
+            e.preventDefault();
+            closeSettings();
+        }
+        return;
+    }
+
     if (!gameState) return;
 
     // Handle Alt+t first (clear target) before regular 't' handling
@@ -174,7 +498,7 @@ document.addEventListener('keydown', (e) => {
     // Prevent default for game keys
     const gameKeys = [
         'h', 'j', 'k', 'l', 'y', 'u', 'b', 'n', '_',
-        'i', 'x', 't', 'T', 'f', 'w', 'p', 'S', 'Q',
+        'i', 'x', 't', 'T', 'f', 'w', 'p', 'S', 'Q', 'O',
         '?', '>', '<', '.', ',', 'Enter', 'Escape', 'Tab',
         'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight'
     ];
@@ -186,6 +510,11 @@ document.addEventListener('keydown', (e) => {
         // Intercept Q to show quit confirmation instead of sending to server
         if (key === 'Q') {
             document.getElementById('quit-confirm-overlay').style.display = 'block';
+            return;
+        }
+        // Intercept O to open settings overlay without sending to server
+        if (key === 'O') {
+            openSettings();
             return;
         }
         // Map Enter to Return for consistency
@@ -583,5 +912,23 @@ window.addEventListener('load', () => {
 
     document.getElementById('confirm-quit-no').onclick = function() {
         document.getElementById('quit-confirm-overlay').style.display = 'none';
+    };
+
+    document.getElementById('settings-save-btn').onclick = function() {
+        const settings = collectCurrentSettings();
+        if (!settings) return;
+        if (socket && socket.connected) {
+            socket.emit('save_settings', settings);
+        }
+    };
+
+    document.getElementById('settings-reset-btn').onclick = function() {
+        if (socket && socket.connected) {
+            socket.emit('reset_settings');
+        }
+    };
+
+    document.getElementById('settings-cancel-btn').onclick = function() {
+        closeSettings();
     };
 });
