@@ -21,6 +21,7 @@
             <div id="title-menu">
                 <button id="btn-new-game" onclick="newGame()">New Game</button>
                 <button id="continue-btn" onclick="continueGame()" disabled>Continue Game</button>
+                <button id="btn-settings" onclick="openSettings()">Settings</button>
             </div>
             <div id="controls-help">
                 <p>Movement: hjklyubn | Slipgates: &lt; &gt; | Inventory: i | Pick/Drop: x</p>
@@ -99,6 +100,51 @@
       <p style="color:#fff; margin-bottom:15px;">Quit without saving?<br><span style="color:#aaa; font-size:0.9em;">Your progress will be lost permanently.</span></p>
       <button id="confirm-quit-yes" style="background:#c00; color:#fff; margin-right:10px; padding:5px 15px;">Yes, Quit</button>
       <button id="confirm-quit-no" style="color:#aaa; padding:5px 15px;">No, Continue</button>
+    </div>
+
+    <!-- Settings Overlay -->
+    <div id="settings-overlay" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%,-50%); background:#111; border:2px solid #888; padding:20px; z-index:200; min-width:500px; max-height:80vh; overflow-y:auto;">
+      <h2 style="color:#fff; margin-bottom:15px;">Settings</h2>
+      <!-- Tab bar -->
+      <div id="settings-tabs" style="display:flex; border-bottom:1px solid #444; margin-bottom:15px;">
+        <button id="settings-tab-keybindings" class="settings-tab settings-tab-active" onclick="switchSettingsTab('keybindings')">Key Bindings</button>
+        <button id="settings-tab-options" class="settings-tab" onclick="switchSettingsTab('options')">Game Options</button>
+      </div>
+      <!-- Status/feedback message area -->
+      <div id="settings-message" style="display:none; padding:6px 8px; margin-bottom:10px; font-size:13px; border-radius:2px;"></div>
+      <!-- Key Bindings section -->
+      <div id="settings-keybindings-section">
+        <table id="settings-keybindings-table" style="width:100%; border-collapse:collapse; font-size:13px;">
+          <thead>
+            <tr>
+              <th style="text-align:left; color:#888; padding:4px 8px; border-bottom:1px solid #333; width:60%;">Action</th>
+              <th style="text-align:left; color:#888; padding:4px 8px; border-bottom:1px solid #333; width:40%;">Key</th>
+            </tr>
+          </thead>
+          <tbody id="settings-keybindings-body">
+            <!-- Populated by JS -->
+          </tbody>
+        </table>
+      </div>
+      <!-- Game Options section -->
+      <div id="settings-options-section" style="display:none;">
+        <div style="margin-bottom:12px;">
+          <label for="settings-animation-speed" style="color:#ccc; display:block; margin-bottom:4px;">Animation Speed (ms)</label>
+          <input id="settings-animation-speed" type="number" min="10" max="200" style="background:#1a1a1a; color:#fff; border:1px solid #555; padding:4px 8px; font-family:monospace; width:100px;">
+          <span style="color:#666; margin-left:8px; font-size:12px;">10–200 ms per tile</span>
+        </div>
+        <div style="margin-bottom:12px;">
+          <label for="settings-max-messages" style="color:#ccc; display:block; margin-bottom:4px;">Max Visible Messages</label>
+          <input id="settings-max-messages" type="number" min="1" max="10" style="background:#1a1a1a; color:#fff; border:1px solid #555; padding:4px 8px; font-family:monospace; width:100px;">
+          <span style="color:#666; margin-left:8px; font-size:12px;">1–10 messages</span>
+        </div>
+      </div>
+      <!-- Action buttons -->
+      <div style="margin-top:15px; text-align:right; border-top:1px solid #333; padding-top:12px;">
+        <button id="settings-save-btn">Save</button>
+        <button id="settings-reset-btn" style="margin-left:8px;">Reset to Defaults</button>
+        <button id="settings-cancel-btn" style="margin-left:8px; color:#aaa;">Cancel</button>
+      </div>
     </div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.7.4/socket.io.min.js"></script>

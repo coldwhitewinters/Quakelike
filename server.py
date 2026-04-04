@@ -9,6 +9,13 @@ from flask import Flask, render_template, send_from_directory, request
 from flask_socketio import SocketIO, emit
 
 from quakelike.game import Game, _validate_game_id
+from quakelike.settings import GameSettings
+
+# Path to the global settings file.  Tests patch quakelike.settings.SETTINGS_PATH
+# directly; server handlers load settings via GameSettings.load() which reads
+# from that module-level variable, so patching quakelike.settings.SETTINGS_PATH
+# is sufficient to redirect reads/writes in both module and server handlers.
+SETTINGS_PATH = 'settings.json'
 
 app = Flask(__name__, static_folder='static', template_folder='static')
 cors_origins = os.getenv('CORS_ORIGINS', 'http://localhost:8080')
@@ -68,6 +75,8 @@ def on_new_game(data=None):
     sid = request.sid
     game = get_game(sid)
     seed = data.get('seed') if data else None
+    # Load current settings so remapped keys take effect in this session
+    game.settings = GameSettings.load()
     game.new_game(seed=seed)
     state = game.get_render_state()
     emit('game_state', state)
@@ -131,6 +140,64 @@ def on_input(data):
         emit('goto_menu', {})
     else:
         emit('game_state', state)
+
+
+@socketio.on('get_settings')
+def on_get_settings():
+    """Emit current settings (loaded from disk or defaults if file is absent/corrupt)."""
+    settings = GameSettings.load()
+    emit('settings_data', settings.to_dict())
+
+
+@socketio.on('save_settings')
+def on_save_settings(data):
+    """Validate and persist incoming settings; update active game session if any."""
+    from quakelike.settings import DEFAULT_KEYBINDINGS as _DEFAULT_KB
+
+    if not isinstance(data, dict):
+        emit('settings_error', {'message': 'Invalid settings payload.'})
+        return
+
+    # Reject payloads that are missing any required action — from_dict() would
+    # silently fill in defaults, masking the omission from validate().
+    submitted_bindings = data.get("keybindings", {})
+    if not isinstance(submitted_bindings, dict):
+        emit('settings_error', {'message': 'keybindings must be a dict.'})
+        return
+    missing = [a for a in _DEFAULT_KB if a not in submitted_bindings]
+    if missing:
+        emit('settings_error', {
+            'message': f"Missing required action(s): {', '.join(missing)}"
+        })
+        return
+
+    try:
+        settings = GameSettings.from_dict(data)
+        settings.validate()
+    except (ValueError, TypeError) as exc:
+        emit('settings_error', {'message': str(exc)})
+        return
+
+    settings.save()
+
+    # Update the active game session so remapped keys take effect immediately
+    sid = request.sid
+    game = games.get(sid)
+    if game is not None:
+        game.settings = settings
+
+    emit('settings_saved', settings.to_dict())
+
+
+@socketio.on('reset_settings')
+def on_reset_settings():
+    """Reset settings to defaults, persist them, and emit the default settings_data."""
+    settings = GameSettings.reset()
+    sid = request.sid
+    game = games.get(sid)
+    if game is not None:
+        game.settings = settings
+    emit('settings_data', settings.to_dict())
 
 
 if __name__ == '__main__':

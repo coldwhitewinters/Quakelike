@@ -315,3 +315,91 @@ body {
     background-color: #DAA520;
     color: #0a0a0a;
 }
+
+/* Settings Overlay */
+#settings-overlay button {
+    background-color: #1a1a1a;
+    color: #DAA520;
+    border: 1px solid #DAA520;
+    padding: 6px 16px;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+#settings-overlay button:hover {
+    background-color: #DAA520;
+    color: #0a0a0a;
+}
+
+#settings-overlay #settings-cancel-btn {
+    color: #aaa;
+    border-color: #555;
+}
+
+#settings-overlay #settings-cancel-btn:hover {
+    background-color: #333;
+    color: #fff;
+}
+
+.settings-tab {
+    background: none;
+    border: none;
+    border-bottom: 2px solid transparent;
+    color: #888;
+    padding: 6px 16px;
+    font-family: 'Courier New', monospace;
+    font-size: 13px;
+    cursor: pointer;
+    margin-bottom: -1px;
+    transition: color 0.15s;
+}
+
+.settings-tab:hover {
+    color: #ccc;
+    background: none;
+}
+
+.settings-tab-active {
+    color: #DAA520 !important;
+    border-bottom: 2px solid #DAA520 !important;
+    background: none !important;
+}
+
+#settings-keybindings-body tr {
+    cursor: pointer;
+    border-bottom: 1px solid #222;
+}
+
+#settings-keybindings-body tr:hover {
+    background-color: #1e1e1e;
+}
+
+#settings-keybindings-body tr.capturing {
+    background-color: #1a2a1a;
+}
+
+#settings-keybindings-body tr.conflict {
+    background-color: #2a1a1a;
+}
+
+#settings-keybindings-body td {
+    padding: 5px 8px;
+    color: #ccc;
+}
+
+#settings-keybindings-body td.key-cell {
+    color: #FFD700;
+    font-family: 'Courier New', monospace;
+}
+
+#settings-keybindings-body td.key-cell.capturing {
+    color: #aaa;
+    font-style: italic;
+}
+
+#settings-keybindings-body td.conflict-hint {
+    color: #c00;
+    font-size: 11px;
+}
